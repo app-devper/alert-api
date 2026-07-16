@@ -1,0 +1,376 @@
+openapi: 3.0.3
+info:
+  title: alert-api
+  description: Emergency Alert System (devper-alert) — QR check-in, OTP verification, emergency dashboard, multi-channel alerting (SMS / Web Push / LINE), PDPA compliance.
+  version: 1.0.0
+servers:
+  - url: https://api.devper.app/api/alert/v1
+security: []
+components:
+  securitySchemes:
+    staffBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: um-api issued JWT (HS256)
+    customerSession:
+      type: apiKey
+      in: header
+      name: X-Session-Token
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        success: { type: boolean }
+        data: { nullable: true }
+        error:
+          type: object
+          nullable: true
+          properties:
+            code: { type: string }
+            message: { type: string }
+        meta:
+          type: object
+          nullable: true
+          properties:
+            total: { type: integer }
+            page: { type: integer }
+            limit: { type: integer }
+    EventType:
+      type: string
+      enum: [FIRE, EVACUATE, AVOID_AREA, SUSPICIOUS_OBJECT, BRAWL, EXTERNAL, ALL_CLEAR, TEST]
+    CreateCheckIn:
+      type: object
+      required: [qrToken, phone, groupSize, acceptPrivacyNotice, privacyNoticeVersion]
+      properties:
+        qrToken: { type: string }
+        phone: { type: string, example: "0812345678" }
+        groupSize: { type: integer, minimum: 1, maximum: 100 }
+        tableNo: { type: string }
+        preferredLanguage: { type: string, enum: [TH, EN], default: TH }
+        acceptPrivacyNotice: { type: boolean }
+        privacyNoticeVersion: { type: string }
+        marketingConsent: { type: boolean, default: false }
+    TriggerAlert:
+      type: object
+      required: [eventType, confirmMethod]
+      properties:
+        eventType: { $ref: "#/components/schemas/EventType" }
+        confirmMethod: { type: string, enum: [HOLD_3S, PIN] }
+        pin: { type: string, description: required when branch confirm method is PIN }
+        overrideCooldown: { type: boolean, description: MANAGER and above only, audited }
+    UpsertTemplate:
+      type: object
+      required: [code, textTh, textEn]
+      properties:
+        code: { $ref: "#/components/schemas/EventType" }
+        textTh: { type: string, description: must not contain links }
+        textEn: { type: string, description: must not contain links }
+        channelOverrides:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              textTh: { type: string }
+              textEn: { type: string }
+        active: { type: boolean }
+    UpdateBranchSetting:
+      type: object
+      required: [retentionHours, cooldownSeconds, confirmMethod]
+      properties:
+        shopName: { type: string }
+        retentionHours: { type: integer, minimum: 6, maximum: 24 }
+        cooldownSeconds: { type: integer, minimum: 60, maximum: 180 }
+        confirmMethod: { type: string, enum: [HOLD_3S, PIN] }
+        smsCreditThreshold: { type: integer }
+        contactChannel: { type: string }
+    UpsertPermission:
+      type: object
+      required: [userId, branchId]
+      properties:
+        userId: { type: string }
+        branchId: { type: string }
+        phone: { type: string }
+        allowedEventTypes:
+          type: array
+          items: { $ref: "#/components/schemas/EventType" }
+        isTestRecipient: { type: boolean }
+        active: { type: boolean }
+  responses:
+    Ok:
+      description: Standard envelope
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /public/qr/{token}:
+    get:
+      summary: Resolve QR token to branch info (customer entry point)
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "410": { description: QR revoked or unknown }
+  /public/check-ins:
+    post:
+      summary: Create check-in (requires privacy consent) and send OTP
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCheckIn" }
+      responses:
+        "200": { description: "{checkInId, refCode, otpExpiresAt}" }
+        "429": { description: OTP rate limit exceeded }
+  /public/check-ins/{id}/verify:
+    post:
+      summary: Verify OTP → activates check-in, returns customer session token
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [otp]
+              properties:
+                otp: { type: string, minLength: 6, maxLength: 6 }
+      responses:
+        "200": { description: "{sessionToken, status, expiresAt}" }
+        "400": { description: wrong OTP (max 5 attempts) }
+        "410": { description: OTP expired }
+  /public/check-ins/{id}/resend-otp:
+    post:
+      summary: Resend OTP (rate limited per phone and per client)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /public/vapid:
+    get:
+      summary: VAPID public key for Web Push subscription
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /public/me:
+    get:
+      summary: Customer registration status page data
+      security: [{ customerSession: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /public/me/checkout:
+    post:
+      summary: Self checkout
+      security: [{ customerSession: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /public/me/push:
+    post:
+      summary: Register Web Push subscription
+      security: [{ customerSession: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    delete:
+      summary: Remove Web Push subscription
+      security: [{ customerSession: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /public/me/line:
+    post:
+      summary: Link LINE userId to current check-in
+      security: [{ customerSession: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /public/me/withdraw:
+    post:
+      summary: Withdraw consent — immediately deletes the check-in (PDPA)
+      security: [{ customerSession: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /emergency/preview:
+    get:
+      summary: Load template + recipient count + confirm method before sending
+      security: [{ staffBearer: [] }]
+      parameters:
+        - { name: eventType, in: query, required: true, schema: { $ref: "#/components/schemas/EventType" } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "403": { description: staff not permitted for this event type }
+  /emergency/trigger:
+    post:
+      summary: Trigger alert to all active customers (two-step confirmed)
+      security: [{ staffBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TriggerAlert" }
+      responses:
+        "200": { description: "{event, channelSummary, allFailed}" }
+        "409": { description: cooldown — same event recently sent }
+        "423": { description: PIN locked after repeated failures }
+  /emergency/active:
+    get:
+      summary: Latest open (not all-cleared) event of the branch
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /dashboard/summary:
+    get:
+      summary: Active customer counts (auto-refresh source)
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /dashboard/check-ins:
+    get:
+      summary: Active check-in list (masked phones, audited)
+      security: [{ staffBearer: [] }]
+      parameters:
+        - { name: search, in: query, schema: { type: string }, description: table no or last 4 digits }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /dashboard/check-ins/{id}/checkout:
+    post:
+      summary: Staff checkout on behalf of customer (audited)
+      security: [{ staffBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /dashboard/events:
+    get:
+      summary: Event history (MANAGER+)
+      security: [{ staffBearer: [] }]
+      parameters:
+        - { name: eventType, in: query, schema: { $ref: "#/components/schemas/EventType" } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /dashboard/events/{id}:
+    get:
+      summary: Event detail with per-channel summary and failed deliveries (MANAGER+)
+      security: [{ staffBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/templates:
+    get:
+      summary: List message templates
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    post:
+      summary: Create template (link-free validated)
+      security: [{ staffBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpsertTemplate" }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/templates/{id}:
+    put:
+      summary: Update template (keeps at least one active per event type)
+      security: [{ staffBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpsertTemplate" }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/settings:
+    get:
+      summary: Branch setting (retention, cooldown, confirm method)
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    put:
+      summary: Update branch setting (retention 6–24h enforced)
+      security: [{ staffBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateBranchSetting" }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/settings/pin:
+    put:
+      summary: Set Emergency PIN (bcrypt, 6 digits)
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/permissions:
+    get:
+      summary: List staff permissions
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    put:
+      summary: Upsert per-staff event-type permission / test recipient
+      security: [{ staffBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpsertPermission" }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/qr:
+    get:
+      summary: List QR tokens
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    post:
+      summary: Create QR token for branch/table
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/qr/{id}/revoke:
+    post:
+      summary: Revoke QR token — check-ins from it are rejected
+      security: [{ staffBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/qr/{id}/image:
+    get:
+      summary: PNG image of the QR for printing
+      security: [{ staffBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: PNG
+          content:
+            image/png: {}
+  /admin/sms-credit:
+    get:
+      summary: SMS gateway credit balance vs threshold
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /webhook/sms:
+    post:
+      summary: SMS delivery report webhook (HMAC-SHA256 signature in X-Webhook-Signature)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  reference: { type: string }
+                  status: { type: string, example: DELIVERED }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "401": { description: invalid signature }

@@ -51,9 +51,6 @@ func ApplyCheckInAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	me.DELETE("/push", func(ctx *gin.Context) {
 		handlePushUnsubscribe(ctx, repository)
 	})
-	me.POST("/line", func(ctx *gin.Context) {
-		handleLineLink(ctx, repository)
-	})
 	me.POST("/withdraw", func(ctx *gin.Context) {
 		handleWithdrawConsent(ctx, repository)
 	})
@@ -126,7 +123,7 @@ func handleMe(ctx *gin.Context) {
 		"channels": gin.H{
 			"sms":  true,
 			"push": checkIn.HasPush(),
-			"line": checkIn.HasLine(),
+			"line": true,
 		},
 		"consent": gin.H{
 			"consentAt":            checkIn.ConsentAt,
@@ -169,20 +166,6 @@ func handlePushUnsubscribe(ctx *gin.Context, repository *domain.Repository) {
 		return
 	}
 	response.Ok(ctx, gin.H{"push": false})
-}
-
-func handleLineLink(ctx *gin.Context, repository *domain.Repository) {
-	var req request.LineLink
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		errcode.Abort(ctx, http.StatusBadRequest, errcode.CK_BAD_REQUEST_001, err.Error())
-		return
-	}
-	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.SetLineUserId(checkIn.Id, req.LineUserId); err != nil {
-		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
-		return
-	}
-	response.Ok(ctx, gin.H{"line": true})
 }
 
 func handleWithdrawConsent(ctx *gin.Context, repository *domain.Repository) {

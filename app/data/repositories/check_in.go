@@ -26,7 +26,6 @@ type ICheckIn interface {
 	Checkout(id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error
 	SetPushSubscription(id primitive.ObjectID, subscription *entities.PushSubscription) error
 	ClearPushSubscription(id primitive.ObjectID) error
-	SetLineUserId(id primitive.ObjectID, lineUserId string) error
 	DeleteCheckIn(id primitive.ObjectID) error
 	CountActive(clientId string, branchId string, now time.Time) (int64, error)
 }
@@ -114,13 +113,6 @@ func (entity *checkInEntity) SetPushSubscription(id primitive.ObjectID, subscrip
 
 func (entity *checkInEntity) ClearPushSubscription(id primitive.ObjectID) error {
 	return entity.SetPushSubscription(id, nil)
-}
-
-func (entity *checkInEntity) SetLineUserId(id primitive.ObjectID, lineUserId string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, err := entity.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"lineUserId": lineUserId}})
-	return err
 }
 
 func (entity *checkInEntity) DeleteCheckIn(id primitive.ObjectID) error {

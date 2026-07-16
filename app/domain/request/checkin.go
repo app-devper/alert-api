@@ -20,7 +20,3 @@ type PushSubscribe struct {
 	P256dh   string `json:"p256dh" binding:"required"`
 	Auth     string `json:"auth" binding:"required"`
 }
-
-type LineLink struct {
-	LineUserId string `json:"lineUserId" binding:"required"`
-}

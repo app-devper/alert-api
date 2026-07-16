@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"alert/app/core/constant"
@@ -13,8 +14,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const lineMulticastUrl = "https://api.line.me/v2/bot/message/multicast"
-const lineMulticastBatchSize = 500
+const linePnpPushUrl = "https://api.line.me/bot/pnp/push"
+const lineConcurrency = 20
 
 type lineProvider struct {
 	channelToken string
@@ -37,50 +38,63 @@ func (p *lineProvider) Send(messages []OutboundMessage) []SendResult {
 		logrus.Warn("line provider not configured, logging only")
 		return simulateSuccess(messages, "LINE")
 	}
-	results := make([]SendResult, 0, len(messages))
-	for _, batch := range groupByText(messages, lineMulticastBatchSize) {
-		results = append(results, p.sendBatch(batch)...)
+	results := make([]SendResult, len(messages))
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, lineConcurrency)
+	for i, message := range messages {
+		wg.Add(1)
+		go func(index int, msg OutboundMessage) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			results[index] = p.sendOne(msg, index)
+		}(i, message)
 	}
+	wg.Wait()
 	return results
 }
 
-func (p *lineProvider) sendBatch(batch []OutboundMessage) []SendResult {
-	userIds := make([]string, 0, len(batch))
-	for _, message := range batch {
-		userIds = append(userIds, message.Target)
-	}
+func (p *lineProvider) sendOne(message OutboundMessage, index int) SendResult {
+	deliveryTag := fmt.Sprintf("lon-%d-%d", time.Now().UnixNano(), index)
 	payload, err := json.Marshal(map[string]interface{}{
-		"to": userIds,
+		"to": message.Target,
 		"messages": []map[string]string{
-			{"type": "text", "text": batch[0].Text},
+			{"type": "text", "text": message.Text},
 		},
 	})
 	if err != nil {
-		return failAll(batch, err.Error())
+		return SendResult{RecipientKey: message.RecipientKey, FailReason: err.Error()}
 	}
-	req, err := http.NewRequest(http.MethodPost, lineMulticastUrl, bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, linePnpPushUrl, bytes.NewReader(payload))
 	if err != nil {
-		return failAll(batch, err.Error())
+		return SendResult{RecipientKey: message.RecipientKey, FailReason: err.Error()}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.channelToken)
+	req.Header.Set("X-Line-Delivery-Tag", deliveryTag)
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return failAll(batch, err.Error())
+		return SendResult{RecipientKey: message.RecipientKey, FailReason: err.Error()}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnprocessableEntity {
+		return SendResult{
+			RecipientKey:   message.RecipientKey,
+			FailReason:     "phone number not reachable on LINE",
+			ProviderStatus: fmt.Sprintf("%d", resp.StatusCode),
+		}
+	}
 	if resp.StatusCode >= 400 {
-		return failAll(batch, fmt.Sprintf("line api error: %d", resp.StatusCode))
+		return SendResult{
+			RecipientKey:   message.RecipientKey,
+			FailReason:     fmt.Sprintf("line pnp error: %d", resp.StatusCode),
+			ProviderStatus: fmt.Sprintf("%d", resp.StatusCode),
+		}
 	}
-	reference := fmt.Sprintf("line-%d", time.Now().UnixNano())
-	results := make([]SendResult, 0, len(batch))
-	for i, message := range batch {
-		results = append(results, SendResult{
-			RecipientKey:      message.RecipientKey,
-			Success:           true,
-			ProviderReference: fmt.Sprintf("%s-%d", reference, i),
-			ProviderStatus:    fmt.Sprintf("%d", resp.StatusCode),
-		})
+	return SendResult{
+		RecipientKey:      message.RecipientKey,
+		Success:           true,
+		ProviderReference: deliveryTag,
+		ProviderStatus:    fmt.Sprintf("%d", resp.StatusCode),
 	}
-	return results
 }

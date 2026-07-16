@@ -56,16 +56,27 @@ func handleSmsWebhook(ctx *gin.Context, repository *domain.Repository) {
 	}
 	now := time.Now()
 	updated := 0
+	tenants := candidateTenants(ctx.Query("clientId"), repository)
 	for _, report := range reports {
 		status := mapProviderStatus(report.Status)
 		if report.Reference == "" || status == "" {
 			continue
 		}
-		if _, err := repository.DeliveryLog.UpdateStatusByProviderReference(report.Reference, status, report.Status, now); err == nil {
-			updated++
+		for _, clientId := range tenants {
+			if _, err := repository.DeliveryLog.UpdateStatusByProviderReference(clientId, report.Reference, status, report.Status, now); err == nil {
+				updated++
+				break
+			}
 		}
 	}
 	response.Ok(ctx, gin.H{"updated": updated})
+}
+
+func candidateTenants(clientId string, repository *domain.Repository) []string {
+	if clientId != "" {
+		return []string{clientId}
+	}
+	return repository.Tenants.KnownClients()
 }
 
 func verifySignature(signature string, body []byte) bool {

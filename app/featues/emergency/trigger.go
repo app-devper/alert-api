@@ -230,14 +230,14 @@ func createEvent(repository *domain.Repository, ctx *gin.Context, req request.Tr
 }
 
 func finalizeDispatch(repository *domain.Repository, event *entities.EmergencyEvent, outcome messaging.DispatchOutcome) {
-	if err := repository.DeliveryLog.CreateMany(outcome.Logs); err != nil {
+	if err := repository.DeliveryLog.CreateMany(event.ClientId, outcome.Logs); err != nil {
 		return
 	}
 	event.ChannelSummary = outcome.Summary
 	event.ProviderReference = outcome.ProviderReference
-	_ = repository.EmergencyEvent.UpdateChannelSummary(event.Id, outcome.Summary, outcome.ProviderReference)
+	_ = repository.EmergencyEvent.UpdateChannelSummary(event.ClientId, event.Id, outcome.Summary, outcome.ProviderReference)
 	for _, checkInId := range outcome.GoneSubscriptionIds {
-		_ = repository.CheckIn.ClearPushSubscription(checkInId)
+		_ = repository.CheckIn.ClearPushSubscription(event.ClientId, checkInId)
 	}
 }
 

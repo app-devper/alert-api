@@ -38,7 +38,12 @@ func handleCreateCheckIn(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.CK_BAD_REQUEST_002, "invalid phone number")
 		return
 	}
-	qrToken, err := repository.QrToken.GetActiveByToken(req.QrToken)
+	clientId, _, err := alerting.SplitTenantRef(req.QrToken)
+	if err != nil {
+		errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
+		return
+	}
+	qrToken, err := repository.QrToken.GetActiveByToken(clientId, req.QrToken)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
 		return
@@ -76,11 +81,11 @@ func handleCreateCheckIn(ctx *gin.Context, repository *domain.Repository) {
 }
 
 func handleResendOtp(ctx *gin.Context, repository *domain.Repository) {
-	id, ok := parseObjectId(ctx)
+	clientId, id, ok := parseCheckInRef(ctx)
 	if !ok {
 		return
 	}
-	checkIn, err := repository.CheckIn.GetCheckInById(id)
+	checkIn, err := repository.CheckIn.GetCheckInById(clientId, id)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.CK_NOT_FOUND_001, "check-in not found")
 		return
@@ -124,7 +129,7 @@ func sendOtp(ctx *gin.Context, repository *domain.Repository, checkIn entities.C
 		return
 	}
 	response.Ok(ctx, gin.H{
-		"checkInId":    checkIn.Id.Hex(),
+		"checkInId":    alerting.ComposeTenantRef(checkIn.ClientId, checkIn.Id.Hex()),
 		"refCode":      refCode,
 		"otpExpiresAt": expiresAt,
 	})
@@ -147,7 +152,7 @@ func passOtpRateLimits(ctx *gin.Context, repository *domain.Repository, checkIn 
 }
 
 func handleVerifyOtp(ctx *gin.Context, repository *domain.Repository) {
-	id, ok := parseObjectId(ctx)
+	clientId, id, ok := parseCheckInRef(ctx)
 	if !ok {
 		return
 	}
@@ -156,7 +161,7 @@ func handleVerifyOtp(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.OT_BAD_REQUEST_001, err.Error())
 		return
 	}
-	checkIn, err := repository.CheckIn.GetCheckInById(id)
+	checkIn, err := repository.CheckIn.GetCheckInById(clientId, id)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.CK_NOT_FOUND_001, "check-in not found")
 		return
@@ -165,7 +170,7 @@ func handleVerifyOtp(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.OT_BAD_REQUEST_002, "already verified")
 		return
 	}
-	otpRequest, err := repository.OtpRequest.GetLatestByCheckInId(checkIn.Id)
+	otpRequest, err := repository.OtpRequest.GetLatestByCheckInId(checkIn.ClientId, checkIn.Id)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusGone, errcode.OT_GONE_001, "OTP expired, request a new one")
 		return
@@ -180,7 +185,7 @@ func handleVerifyOtp(ctx *gin.Context, repository *domain.Repository) {
 	}
 	expectedHash := alerting.HashOtp(otpSecret(), checkIn.Phone, otpRequest.RefCode, req.Otp)
 	if expectedHash != otpRequest.OtpHash {
-		attempts, _ := repository.OtpRequest.IncrementAttempt(otpRequest.Id)
+		attempts, _ := repository.OtpRequest.IncrementAttempt(checkIn.ClientId, otpRequest.Id)
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.OT_BAD_REQUEST_002,
 			fmt.Sprintf("invalid OTP, %d attempts remaining", constant.OtpMaxAttempts-attempts))
 		return
@@ -195,17 +200,18 @@ func completeVerification(ctx *gin.Context, repository *domain.Repository, check
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.OT_INTERNAL_001, err.Error())
 		return
 	}
-	sessionToken, err := alerting.GenerateSessionToken()
+	rawToken, err := alerting.GenerateSessionToken()
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.OT_INTERNAL_001, err.Error())
 		return
 	}
+	sessionToken := alerting.ComposeTenantRef(checkIn.ClientId, rawToken)
 	expiresAt := now.Add(time.Duration(setting.RetentionHours) * time.Hour)
-	if err := repository.CheckIn.MarkOtpVerified(checkIn.Id, now, alerting.HashToken(sessionToken), expiresAt); err != nil {
+	if err := repository.CheckIn.MarkOtpVerified(checkIn.ClientId, checkIn.Id, now, alerting.HashToken(sessionToken), expiresAt); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.OT_INTERNAL_001, err.Error())
 		return
 	}
-	_ = repository.OtpRequest.MarkVerified(otpRequest.Id, now)
+	_ = repository.OtpRequest.MarkVerified(checkIn.ClientId, otpRequest.Id, now)
 	response.Ok(ctx, gin.H{
 		"sessionToken": sessionToken,
 		"status":       "ACTIVE",

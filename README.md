@@ -19,9 +19,11 @@ gofmt -w <file>
 
 | Var | ความหมาย |
 |---|---|
-| `PORT`, `MONGO_HOST`, `MONGO_ALERT_DB_NAME`, `REDIS_HOST` | โครงสร้างพื้นฐาน |
+| `PORT`, `MONGO_HOST`, `REDIS_HOST` | โครงสร้างพื้นฐาน |
+| `MONGO_DB_PREFIX` | prefix ของ DB ต่อ tenant (default `alert`) — clientId `000` ใช้ชื่อ prefix ตรง ๆ, อื่น ๆ เป็น `<prefix>_<clientId>` |
 | `SECRET_KEY` | ต้องตรงกับ um-api (JWT HS256 + ใช้ hash OTP) |
-| `CLIENT_ID`, `SYSTEM` | ตรวจ claim ของ token พนักงาน |
+| `SYSTEM` | ตรวจ claim ของ token พนักงาน |
+| `CLIENT_ID` | (ไม่บังคับ) ถ้าตั้งค่า จะล็อก deployment ให้รับเฉพาะ tenant นั้น; เว้นว่าง = multi-tenant รับทุก clientId จาก JWT |
 | `CHECKIN_BASE_URL` | URL หน้าเช็กอินที่ฝังใน QR |
 | `SMS_API_URL`, `SMS_BALANCE_URL`, `SMS_API_KEY`, `SMS_API_SECRET`, `SMS_SENDER_ID` | Bulk SMS Gateway (Sender ID ต้องจดทะเบียน) |
 | `SMS_WEBHOOK_SECRET` | ตรวจ HMAC signature ของ delivery report |
@@ -30,6 +32,17 @@ gofmt -w <file>
 | `LINE_CHANNEL_SECRET` | ตรวจ X-Line-Signature ของ delivery webhook |
 
 Provider ใดไม่ตั้งค่า → โหมด dev จะ log ข้อความแทนการส่งจริง (simulated success)
+
+## Multi-tenant (DB ต่อ clientId)
+
+ตาม pattern ของ pharmacy-api: `db.Manager` ถือ `*mongo.Client` เดียว + `sync.Map` cache
+ต่อ clientId (`ForClient(clientId)`), สร้าง TTL/unique indexes + seed template เริ่มต้น
+ครั้งแรกที่เปิด tenant (`sync.Once`, best-effort) — พนักงานถูก route ด้วย clientId จาก JWT claim;
+ฝั่งลูกค้า (ไม่มี JWT) identifiers สาธารณะทุกตัวเป็น tenant ref รูปแบบ `<clientId>.<value>`:
+QR token, `checkInId` ที่ตอบจาก API และ `X-Session-Token` — ทำให้ backend เปิด tenant DB
+ถูกตัวโดยไม่ต้อง query ข้าม tenant; LINE `X-Line-Delivery-Tag` ก็ฝัง clientId เพื่อให้
+delivery webhook จับคู่ log ได้; SMS delivery webhook รองรับ `?clientId=` (ไม่ส่งมาจะไล่ตาม
+tenant ที่ active ในแคช)
 
 ## Layout
 

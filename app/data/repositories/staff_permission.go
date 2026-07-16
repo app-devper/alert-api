@@ -13,7 +13,7 @@ import (
 )
 
 type staffPermissionEntity struct {
-	col *mongo.Collection
+	mongo *db.Manager
 }
 
 type IStaffPermission interface {
@@ -24,22 +24,34 @@ type IStaffPermission interface {
 }
 
 func NewStaffPermissionEntity(resource *db.Resource) IStaffPermission {
-	return &staffPermissionEntity{col: resource.AlertDb.Collection("staff_permissions")}
+	return &staffPermissionEntity{mongo: resource.Mongo}
+}
+
+func (entity *staffPermissionEntity) collection(clientId string) (*mongo.Collection, error) {
+	return entity.mongo.CollectionFor(clientId, db.CollectionStaffPermissions)
 }
 
 func (entity *staffPermissionEntity) GetByUserId(clientId string, userId string) (entities.StaffPermission, error) {
+	var permission entities.StaffPermission
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return permission, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	var permission entities.StaffPermission
-	err := entity.col.FindOne(ctx, bson.M{"clientId": clientId, "userId": userId}).Decode(&permission)
+	err = col.FindOne(ctx, bson.M{"clientId": clientId, "userId": userId}).Decode(&permission)
 	return permission, err
 }
 
 func (entity *staffPermissionEntity) GetPermissions(clientId string) ([]entities.StaffPermission, error) {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	opts := options.Find().SetSort(bson.D{{Key: "userId", Value: 1}})
-	cursor, err := entity.col.Find(ctx, bson.M{"clientId": clientId}, opts)
+	cursor, err := col.Find(ctx, bson.M{"clientId": clientId}, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +63,10 @@ func (entity *staffPermissionEntity) GetPermissions(clientId string) ([]entities
 }
 
 func (entity *staffPermissionEntity) GetTestRecipients(clientId string, branchId string) ([]entities.StaffPermission, error) {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	filter := bson.M{
@@ -60,7 +76,7 @@ func (entity *staffPermissionEntity) GetTestRecipients(clientId string, branchId
 		"active":          true,
 		"phone":           bson.M{"$ne": ""},
 	}
-	cursor, err := entity.col.Find(ctx, filter)
+	cursor, err := col.Find(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -72,10 +88,14 @@ func (entity *staffPermissionEntity) GetTestRecipients(clientId string, branchId
 }
 
 func (entity *staffPermissionEntity) UpsertPermission(permission entities.StaffPermission) error {
+	col, err := entity.collection(permission.ClientId)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	opts := options.Update().SetUpsert(true)
-	_, err := entity.col.UpdateOne(ctx,
+	_, err = col.UpdateOne(ctx,
 		bson.M{"clientId": permission.ClientId, "userId": permission.UserId},
 		bson.M{"$set": bson.M{
 			"branchId":          permission.BranchId,

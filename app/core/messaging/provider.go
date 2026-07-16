@@ -8,6 +8,7 @@ type PushTarget struct {
 
 type OutboundMessage struct {
 	RecipientKey string
+	TenantId     string
 	Target       string
 	Text         string
 	Push         *PushTarget

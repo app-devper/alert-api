@@ -14,7 +14,7 @@ import (
 )
 
 type auditLogEntity struct {
-	col *mongo.Collection
+	mongo *db.Manager
 }
 
 type AuditQuery struct {
@@ -33,20 +33,32 @@ type IAuditLog interface {
 }
 
 func NewAuditLogEntity(resource *db.Resource) IAuditLog {
-	return &auditLogEntity{col: resource.AlertDb.Collection("audit_logs")}
+	return &auditLogEntity{mongo: resource.Mongo}
+}
+
+func (entity *auditLogEntity) collection(clientId string) (*mongo.Collection, error) {
+	return entity.mongo.CollectionFor(clientId, db.CollectionAuditLogs)
 }
 
 func (entity *auditLogEntity) Record(log entities.AuditLog) {
+	col, err := entity.collection(log.ClientId)
+	if err != nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	log.Id = primitive.NewObjectID()
 	if log.OccurredAt.IsZero() {
 		log.OccurredAt = time.Now()
 	}
-	_, _ = entity.col.InsertOne(ctx, log)
+	_, _ = col.InsertOne(ctx, log)
 }
 
 func (entity *auditLogEntity) QueryLogs(query AuditQuery) ([]entities.AuditLog, int64, error) {
+	col, err := entity.collection(query.ClientId)
+	if err != nil {
+		return nil, 0, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	filter := bson.M{"clientId": query.ClientId}
@@ -66,7 +78,7 @@ func (entity *auditLogEntity) QueryLogs(query AuditQuery) ([]entities.AuditLog, 
 	if len(occurred) > 0 {
 		filter["occurredAt"] = occurred
 	}
-	total, err := entity.col.CountDocuments(ctx, filter)
+	total, err := col.CountDocuments(ctx, filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -82,7 +94,7 @@ func (entity *auditLogEntity) QueryLogs(query AuditQuery) ([]entities.AuditLog, 
 		SetSort(bson.D{{Key: "occurredAt", Value: -1}}).
 		SetSkip((page - 1) * limit).
 		SetLimit(limit)
-	cursor, err := entity.col.Find(ctx, filter, opts)
+	cursor, err := col.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, 0, err
 	}

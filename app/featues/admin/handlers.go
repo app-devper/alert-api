@@ -94,8 +94,8 @@ func handleUpdateTemplate(ctx *gin.Context, repository *domain.Repository) {
 		return
 	}
 	clientId := ctx.GetString("ClientId")
-	existing, err := repository.MessageTemplate.GetTemplateById(id)
-	if err != nil || existing.ClientId != clientId {
+	existing, err := repository.MessageTemplate.GetTemplateById(clientId, id)
+	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.TP_NOT_FOUND_001, "template not found")
 		return
 	}
@@ -107,7 +107,7 @@ func handleUpdateTemplate(ctx *gin.Context, repository *domain.Repository) {
 		}
 	}
 	template := templateFromRequest(req, clientId, ctx.GetString("UserId"))
-	if err := repository.MessageTemplate.UpdateTemplate(id, template); err != nil {
+	if err := repository.MessageTemplate.UpdateTemplate(clientId, id, template); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.TP_INTERNAL_001, err.Error())
 		return
 	}
@@ -224,13 +224,15 @@ func handleCreateQr(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_001, err.Error())
 		return
 	}
-	token, err := alerting.GenerateSessionToken()
+	randomToken, err := alerting.GenerateSessionToken()
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
 		return
 	}
+	clientId := ctx.GetString("ClientId")
+	token := alerting.ComposeTenantRef(clientId, randomToken)
 	qrToken, err := repository.QrToken.CreateQrToken(entities.QrToken{
-		ClientId:  ctx.GetString("ClientId"),
+		ClientId:  clientId,
 		BranchId:  req.BranchId,
 		TableNo:   req.TableNo,
 		Token:     token,
@@ -250,7 +252,7 @@ func handleRevokeQr(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_001, "invalid id")
 		return
 	}
-	if err := repository.QrToken.Revoke(id, time.Now()); err != nil {
+	if err := repository.QrToken.Revoke(ctx.GetString("ClientId"), id, time.Now()); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
 		return
 	}
@@ -264,8 +266,8 @@ func handleQrImage(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_001, "invalid id")
 		return
 	}
-	qrToken, err := repository.QrToken.GetQrTokenById(id)
-	if err != nil || qrToken.ClientId != ctx.GetString("ClientId") {
+	qrToken, err := repository.QrToken.GetQrTokenById(ctx.GetString("ClientId"), id)
+	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.AD_NOT_FOUND_001, "QR not found")
 		return
 	}

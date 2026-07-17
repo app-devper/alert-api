@@ -63,7 +63,7 @@ func (entity *qrTokenEntity) GetQrTokens(clientId string, branchId string) ([]en
 	if err != nil {
 		return nil, err
 	}
-	var tokens []entities.QrToken
+	tokens := []entities.QrToken{}
 	if err = cursor.All(ctx, &tokens); err != nil {
 		return nil, err
 	}

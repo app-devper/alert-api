@@ -55,7 +55,7 @@ func (entity *staffPermissionEntity) GetPermissions(clientId string) ([]entities
 	if err != nil {
 		return nil, err
 	}
-	var permissions []entities.StaffPermission
+	permissions := []entities.StaffPermission{}
 	if err = cursor.All(ctx, &permissions); err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (entity *staffPermissionEntity) GetTestRecipients(clientId string, branchId
 	if err != nil {
 		return nil, err
 	}
-	var recipients []entities.StaffPermission
+	recipients := []entities.StaffPermission{}
 	if err = cursor.All(ctx, &recipients); err != nil {
 		return nil, err
 	}

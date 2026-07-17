@@ -30,12 +30,12 @@ func NewDispatcher(providers ...MessageProvider) *Dispatcher {
 	return &Dispatcher{providers: providerMap}
 }
 
-func (d *Dispatcher) DispatchAlert(event entities.EmergencyEvent, recipients []entities.CheckIn, template entities.MessageTemplate, logTtl time.Duration) DispatchOutcome {
+func (d *Dispatcher) DispatchAlert(cfg ProviderConfig, event entities.EmergencyEvent, recipients []entities.CheckIn, template entities.MessageTemplate, logTtl time.Duration) DispatchOutcome {
 	messagesByChannel := buildMessages(event.ClientId, recipients, template)
-	return d.dispatch(event, messagesByChannel, logTtl)
+	return d.dispatch(cfg, event, messagesByChannel, logTtl)
 }
 
-func (d *Dispatcher) DispatchTest(event entities.EmergencyEvent, testRecipients []entities.StaffPermission, template entities.MessageTemplate, logTtl time.Duration) DispatchOutcome {
+func (d *Dispatcher) DispatchTest(cfg ProviderConfig, event entities.EmergencyEvent, testRecipients []entities.StaffPermission, template entities.MessageTemplate, logTtl time.Duration) DispatchOutcome {
 	messages := make([]OutboundMessage, 0, len(testRecipients))
 	for _, recipient := range testRecipients {
 		messages = append(messages, OutboundMessage{
@@ -45,7 +45,7 @@ func (d *Dispatcher) DispatchTest(event entities.EmergencyEvent, testRecipients 
 			Text:         alerting.MessageFor(template, constant.LanguageTh, constant.ChannelSms),
 		})
 	}
-	return d.dispatch(event, map[string][]OutboundMessage{constant.ChannelSms: messages}, logTtl)
+	return d.dispatch(cfg, event, map[string][]OutboundMessage{constant.ChannelSms: messages}, logTtl)
 }
 
 func buildMessages(clientId string, recipients []entities.CheckIn, template entities.MessageTemplate) map[string][]OutboundMessage {
@@ -81,7 +81,7 @@ func buildMessages(clientId string, recipients []entities.CheckIn, template enti
 	return byChannel
 }
 
-func (d *Dispatcher) dispatch(event entities.EmergencyEvent, messagesByChannel map[string][]OutboundMessage, logTtl time.Duration) DispatchOutcome {
+func (d *Dispatcher) dispatch(cfg ProviderConfig, event entities.EmergencyEvent, messagesByChannel map[string][]OutboundMessage, logTtl time.Duration) DispatchOutcome {
 	type channelResult struct {
 		channel  string
 		messages []OutboundMessage
@@ -98,7 +98,7 @@ func (d *Dispatcher) dispatch(event entities.EmergencyEvent, messagesByChannel m
 		wg.Add(1)
 		go func(ch string, p MessageProvider, msgs []OutboundMessage) {
 			defer wg.Done()
-			resultCh <- channelResult{channel: ch, messages: msgs, results: p.Send(msgs)}
+			resultCh <- channelResult{channel: ch, messages: msgs, results: p.Send(cfg, msgs)}
 		}(channel, provider, messages)
 	}
 	wg.Wait()

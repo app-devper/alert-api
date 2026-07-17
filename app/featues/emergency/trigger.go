@@ -56,7 +56,7 @@ func handleRealAlert(ctx *gin.Context, repository *domain.Repository, req reques
 	}
 
 	logTtl := time.Duration(setting.RetentionHours) * time.Hour
-	outcome := repository.Dispatcher.DispatchAlert(event, recipients, template, logTtl)
+	outcome := repository.Dispatcher.DispatchAlert(repository.ProviderConfigFor(clientId), event, recipients, template, logTtl)
 	finalizeDispatch(repository, &event, outcome)
 
 	if req.EventType == constant.EventAllClear {
@@ -111,7 +111,7 @@ func handleTestAlert(ctx *gin.Context, repository *domain.Repository, req reques
 	}
 
 	logTtl := time.Duration(setting.RetentionHours) * time.Hour
-	outcome := repository.Dispatcher.DispatchTest(event, testRecipients, template, logTtl)
+	outcome := repository.Dispatcher.DispatchTest(repository.ProviderConfigFor(clientId), event, testRecipients, template, logTtl)
 	finalizeDispatch(repository, &event, outcome)
 
 	repository.AuditLog.Record(entities.AuditLog{

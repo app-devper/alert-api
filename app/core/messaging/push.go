@@ -43,7 +43,7 @@ func (p *pushProvider) isConfigured() bool {
 	return p.vapidPublicKey != "" && p.vapidPrivateKey != ""
 }
 
-func (p *pushProvider) Send(messages []OutboundMessage) []SendResult {
+func (p *pushProvider) Send(_ ProviderConfig, messages []OutboundMessage) []SendResult {
 	if !p.isConfigured() {
 		logrus.Warn("push provider not configured, logging only")
 		return simulateSuccess(messages, "PUSH")

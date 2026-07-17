@@ -113,4 +113,5 @@ const (
 	CollectionQrTokens         = "qr_tokens"
 	CollectionStaffPermissions = "staff_permissions"
 	CollectionCounters         = "counters"
+	CollectionMessagingConfigs = "messaging_configs"
 )

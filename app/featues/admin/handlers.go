@@ -284,7 +284,7 @@ func handleSmsCredit(ctx *gin.Context, repository *domain.Repository) {
 		response.Ok(ctx, gin.H{"available": false, "credit": 0})
 		return
 	}
-	credit, err := repository.SmsBalance.Balance()
+	credit, err := repository.SmsBalance.Balance(repository.ProviderConfigFor(ctx.GetString("ClientId")))
 	if err != nil {
 		response.Ok(ctx, gin.H{"available": false, "credit": 0, "reason": err.Error()})
 		return

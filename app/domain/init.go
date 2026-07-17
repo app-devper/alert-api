@@ -19,6 +19,7 @@ type Repository struct {
 	StaffPermission repositories.IStaffPermission
 	Counter         repositories.ICounter
 	RateLimit       repositories.IRateLimit
+	MessagingConfig repositories.IMessagingConfig
 	Tenants         *db.Manager
 	Dispatcher      *messaging.Dispatcher
 	OtpSender       messaging.OtpSender
@@ -41,6 +42,7 @@ func InitRepository(resource *db.Resource) *Repository {
 		StaffPermission: repositories.NewStaffPermissionEntity(resource),
 		Counter:         repositories.NewCounterEntity(resource),
 		RateLimit:       repositories.NewRateLimitEntity(resource),
+		MessagingConfig: repositories.NewMessagingConfigEntity(resource),
 		Tenants:         resource.Mongo,
 		Dispatcher:      messaging.NewDispatcher(smsProvider, messaging.NewPushProvider(), messaging.NewLineProvider()),
 		OtpSender:       messaging.NewSmsOtpSender(smsProvider),

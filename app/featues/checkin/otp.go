@@ -124,7 +124,7 @@ func sendOtp(ctx *gin.Context, repository *domain.Repository, checkIn entities.C
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.OT_INTERNAL_001, err.Error())
 		return
 	}
-	if err := repository.OtpSender.SendOtp(checkIn.Phone, refCode, otp); err != nil {
+	if err := repository.OtpSender.SendOtp(repository.ProviderConfigFor(checkIn.ClientId), checkIn.Phone, refCode, otp); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.OT_INTERNAL_001, "failed to send OTP")
 		return
 	}

@@ -80,6 +80,7 @@ func (entity *branchSettingEntity) UpsertSetting(setting entities.BranchSetting)
 			"retentionHours":     setting.RetentionHours,
 			"cooldownSeconds":    setting.CooldownSeconds,
 			"confirmMethod":      setting.ConfirmMethod,
+			"skipOtp":            setting.SkipOtp,
 			"smsCreditThreshold": setting.SmsCreditThreshold,
 			"contactChannel":     setting.ContactChannel,
 			"updatedBy":          setting.UpdatedBy,

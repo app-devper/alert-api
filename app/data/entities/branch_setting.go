@@ -14,6 +14,7 @@ type BranchSetting struct {
 	RetentionHours     int                `bson:"retentionHours" json:"retentionHours"`
 	CooldownSeconds    int                `bson:"cooldownSeconds" json:"cooldownSeconds"`
 	ConfirmMethod      string             `bson:"confirmMethod" json:"confirmMethod"`
+	SkipOtp            bool               `bson:"skipOtp" json:"skipOtp"`
 	PinHash            string             `bson:"pinHash" json:"-"`
 	SmsCreditThreshold int                `bson:"smsCreditThreshold" json:"smsCreditThreshold"`
 	ContactChannel     string             `bson:"contactChannel" json:"contactChannel"`

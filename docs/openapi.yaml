@@ -42,9 +42,11 @@ components:
       enum: [FIRE, EVACUATE, AVOID_AREA, SUSPICIOUS_OBJECT, BRAWL, EXTERNAL, ALL_CLEAR, TEST]
     CreateCheckIn:
       type: object
-      required: [qrToken, phone, groupSize, acceptPrivacyNotice, privacyNoticeVersion]
+      required: [phone, groupSize, acceptPrivacyNotice, privacyNoticeVersion]
       properties:
-        qrToken: { type: string }
+        qrToken: { type: string, description: QR-based entry; omit to register directly with clientId+branchId }
+        clientId: { type: string, description: required for direct registration when qrToken is absent }
+        branchId: { type: string, description: required for direct registration when qrToken is absent }
         phone: { type: string, example: "0812345678" }
         groupSize: { type: integer, minimum: 1, maximum: 100 }
         tableNo: { type: string }
@@ -83,6 +85,7 @@ components:
         retentionHours: { type: integer, minimum: 6, maximum: 24 }
         cooldownSeconds: { type: integer, minimum: 60, maximum: 180 }
         confirmMethod: { type: string, enum: [HOLD_3S, PIN] }
+        skipOtp: { type: boolean, default: false, description: when true, customer check-in activates immediately without OTP verification }
         smsCreditThreshold: { type: integer }
         contactChannel: { type: string }
     UpsertPermission:
@@ -111,21 +114,31 @@ paths:
         "200": { $ref: "#/components/responses/Ok" }
   /public/qr/{token}:
     get:
-      summary: Resolve QR token to branch info (customer entry point)
+      summary: Resolve QR token to branch info (customer entry point). Returns skipOtp so the client knows whether to show the OTP step.
       parameters:
         - { name: token, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { $ref: "#/components/responses/Ok" }
+        "200": { description: "{clientId, branchId, tableNo, shopName, retentionHours, contactChannel, skipOtp}" }
         "410": { description: QR revoked or unknown }
+  /public/branch:
+    get:
+      summary: Resolve branch info directly by clientId + branchId (direct registration link, no QR token needed)
+      parameters:
+        - { name: clientId, in: query, required: true, schema: { type: string } }
+        - { name: branchId, in: query, required: true, schema: { type: string } }
+        - { name: tableNo, in: query, schema: { type: string } }
+      responses:
+        "200": { description: "{clientId, branchId, tableNo, shopName, retentionHours, contactChannel, skipOtp}" }
+        "400": { description: clientId/branchId missing or invalid }
   /public/check-ins:
     post:
-      summary: Create check-in (requires privacy consent) and send OTP
+      summary: Create check-in (requires privacy consent). Identify the branch by qrToken OR by clientId+branchId (direct registration). When the branch has skipOtp enabled, the check-in is activated immediately and a session token is returned; otherwise an OTP is sent.
       requestBody:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/CreateCheckIn" }
       responses:
-        "200": { description: "{checkInId, refCode, otpExpiresAt}" }
+        "200": { description: "OTP flow → {checkInId, refCode, otpExpiresAt}; skipOtp flow → {skipOtp:true, status:ACTIVE, sessionToken, expiresAt}" }
         "429": { description: OTP rate limit exceeded }
   /public/check-ins/{id}/verify:
     post:

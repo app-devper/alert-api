@@ -18,6 +18,7 @@ type UpdateBranchSetting struct {
 	RetentionHours     int    `json:"retentionHours" binding:"required"`
 	CooldownSeconds    int    `json:"cooldownSeconds" binding:"required"`
 	ConfirmMethod      string `json:"confirmMethod" binding:"required"`
+	SkipOtp            bool   `json:"skipOtp"`
 	SmsCreditThreshold int    `json:"smsCreditThreshold"`
 	ContactChannel     string `json:"contactChannel"`
 }

@@ -75,7 +75,7 @@ func (entity *deliveryLogEntity) findByEvent(clientId string, filter bson.M) ([]
 	if err != nil {
 		return nil, err
 	}
-	var logs []entities.DeliveryLog
+	logs := []entities.DeliveryLog{}
 	if err = cursor.All(ctx, &logs); err != nil {
 		return nil, err
 	}

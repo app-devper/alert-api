@@ -155,7 +155,7 @@ func (entity *emergencyEventEntity) QueryEvents(query EventQuery) ([]entities.Em
 	if err != nil {
 		return nil, 0, err
 	}
-	var events []entities.EmergencyEvent
+	events := []entities.EmergencyEvent{}
 	if err = cursor.All(ctx, &events); err != nil {
 		return nil, 0, err
 	}

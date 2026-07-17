@@ -98,7 +98,7 @@ func (entity *auditLogEntity) QueryLogs(query AuditQuery) ([]entities.AuditLog, 
 	if err != nil {
 		return nil, 0, err
 	}
-	var logs []entities.AuditLog
+	logs := []entities.AuditLog{}
 	if err = cursor.All(ctx, &logs); err != nil {
 		return nil, 0, err
 	}

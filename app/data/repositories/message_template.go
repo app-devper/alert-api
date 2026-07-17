@@ -47,7 +47,7 @@ func (entity *messageTemplateEntity) GetTemplates(clientId string) ([]entities.M
 	if err != nil {
 		return nil, err
 	}
-	var templates []entities.MessageTemplate
+	templates := []entities.MessageTemplate{}
 	if err = cursor.All(ctx, &templates); err != nil {
 		return nil, err
 	}

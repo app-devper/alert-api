@@ -96,7 +96,7 @@ func (entity *checkInEntity) GetActiveCheckIns(clientId string, branchId string,
 	if err != nil {
 		return nil, err
 	}
-	var checkIns []entities.CheckIn
+	checkIns := []entities.CheckIn{}
 	if err = cursor.All(ctx, &checkIns); err != nil {
 		return nil, err
 	}

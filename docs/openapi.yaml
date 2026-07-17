@@ -178,12 +178,28 @@ paths:
       security: [{ customerSession: [] }]
       responses:
         "200": { $ref: "#/components/responses/Ok" }
-  /public/me/line:
+  /webhook/line:
     post:
-      summary: Link LINE userId to current check-in
-      security: [{ customerSession: [] }]
+      summary: LINE webhook — delivery completion events for LINE Official Notification (PNP) pushes; matched to delivery_logs via X-Line-Delivery-Tag (signature in X-Line-Signature)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string, example: delivery }
+                      delivery:
+                        type: object
+                        properties:
+                          data: { type: string, description: the X-Line-Delivery-Tag of the original push }
       responses:
         "200": { $ref: "#/components/responses/Ok" }
+        "401": { description: invalid signature }
   /public/me/withdraw:
     post:
       summary: Withdraw consent — immediately deletes the check-in (PDPA)

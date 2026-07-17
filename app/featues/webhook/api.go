@@ -29,6 +29,10 @@ func ApplyWebhookAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	r.POST("/sms", func(ctx *gin.Context) {
 		handleSmsWebhook(ctx, repository)
 	})
+
+	r.POST("/line", func(ctx *gin.Context) {
+		handleLineWebhook(ctx, repository)
+	})
 }
 
 func handleSmsWebhook(ctx *gin.Context, repository *domain.Repository) {

@@ -68,13 +68,11 @@ func buildMessages(recipients []entities.CheckIn, template entities.MessageTempl
 				},
 			})
 		}
-		if recipient.HasLine() {
-			byChannel[constant.ChannelLine] = append(byChannel[constant.ChannelLine], OutboundMessage{
-				RecipientKey: key,
-				Target:       recipient.LineUserId,
-				Text:         alerting.MessageFor(template, recipient.PreferredLanguage, constant.ChannelLine),
-			})
-		}
+		byChannel[constant.ChannelLine] = append(byChannel[constant.ChannelLine], OutboundMessage{
+			RecipientKey: key,
+			Target:       recipient.Phone,
+			Text:         alerting.MessageFor(template, recipient.PreferredLanguage, constant.ChannelLine),
+		})
 	}
 	return byChannel
 }
@@ -154,13 +152,10 @@ func buildDeliveryLog(event entities.EmergencyEvent, channel string, sendResult 
 }
 
 func maskTarget(channel string, target string) string {
-	if channel == constant.ChannelSms {
-		return alerting.MaskPhone(target)
-	}
 	if channel == constant.ChannelPush {
 		return "push:" + alerting.HashToken(target)[:16]
 	}
-	return target
+	return alerting.MaskPhone(target)
 }
 
 func applyToSummary(summary *entities.ChannelSummary, channel string, success bool) {

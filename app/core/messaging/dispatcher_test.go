@@ -43,7 +43,7 @@ func failReason(fail bool) string {
 	return ""
 }
 
-func verifiedCheckIn(withPush bool, withLine bool) entities.CheckIn {
+func verifiedCheckIn(withPush bool) entities.CheckIn {
 	verified := time.Now().Add(-time.Minute)
 	checkIn := entities.CheckIn{
 		Id:                primitive.NewObjectID(),
@@ -57,9 +57,6 @@ func verifiedCheckIn(withPush bool, withLine bool) entities.CheckIn {
 			Endpoint: "https://push.example/sub1",
 			Keys:     entities.PushKeys{P256dh: "key", Auth: "auth"},
 		}
-	}
-	if withLine {
-		checkIn.LineUserId = "U1234"
 	}
 	return checkIn
 }
@@ -77,13 +74,13 @@ func dispatchTemplate() entities.MessageTemplate {
 	return entities.MessageTemplate{TextTh: "ไฟไหม้", TextEn: "Fire"}
 }
 
-func TestDispatchSendsAllEnabledChannelsInParallel(t *testing.T) {
+func TestDispatchSendsAllChannelsInParallel(t *testing.T) {
 	sms := &fakeProvider{channel: constant.ChannelSms}
 	push := &fakeProvider{channel: constant.ChannelPush}
 	line := &fakeProvider{channel: constant.ChannelLine}
 	dispatcher := NewDispatcher(sms, push, line)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(true, true)}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(true)}, dispatchTemplate(), time.Hour)
 
 	if len(outcome.Logs) != 3 {
 		t.Fatalf("expected 3 delivery logs, got %d", len(outcome.Logs))
@@ -93,18 +90,30 @@ func TestDispatchSendsAllEnabledChannelsInParallel(t *testing.T) {
 	}
 }
 
-func TestDispatchSmsOnlyForCustomerWithoutOptionalChannels(t *testing.T) {
+func TestDispatchLineTargetsPhoneNumberViaLon(t *testing.T) {
+	line := &fakeProvider{channel: constant.ChannelLine}
+	dispatcher := NewDispatcher(line)
+
+	dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
+
+	if len(line.received) != 1 {
+		t.Fatalf("expected 1 line message, got %d", len(line.received))
+	}
+	if line.received[0].Target != "+66812345678" {
+		t.Fatalf("expected phone target for LON, got %s", line.received[0].Target)
+	}
+}
+
+func TestDispatchSkipsPushWithoutSubscription(t *testing.T) {
 	sms := &fakeProvider{channel: constant.ChannelSms}
 	push := &fakeProvider{channel: constant.ChannelPush}
-	dispatcher := NewDispatcher(sms, push)
+	line := &fakeProvider{channel: constant.ChannelLine}
+	dispatcher := NewDispatcher(sms, push, line)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false, false)}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
 
-	if len(outcome.Logs) != 1 {
-		t.Fatalf("expected 1 delivery log, got %d", len(outcome.Logs))
-	}
-	if outcome.Logs[0].Channel != constant.ChannelSms {
-		t.Fatalf("expected SMS log, got %s", outcome.Logs[0].Channel)
+	if len(outcome.Logs) != 2 {
+		t.Fatalf("expected 2 delivery logs (sms + line), got %d", len(outcome.Logs))
 	}
 	if len(push.received) != 0 {
 		t.Fatal("push provider must not receive messages")
@@ -116,7 +125,7 @@ func TestDispatchChannelFailureDoesNotBlockOthers(t *testing.T) {
 	line := &fakeProvider{channel: constant.ChannelLine, fail: true}
 	dispatcher := NewDispatcher(sms, line)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false, true)}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
 
 	if outcome.Summary.Sms.Sent != 1 {
 		t.Fatalf("sms must still send, got %+v", outcome.Summary)
@@ -126,21 +135,24 @@ func TestDispatchChannelFailureDoesNotBlockOthers(t *testing.T) {
 	}
 }
 
-func TestDispatchMasksSmsTargetInLogs(t *testing.T) {
+func TestDispatchMasksPhoneTargetsInLogs(t *testing.T) {
 	sms := &fakeProvider{channel: constant.ChannelSms}
-	dispatcher := NewDispatcher(sms)
+	line := &fakeProvider{channel: constant.ChannelLine}
+	dispatcher := NewDispatcher(sms, line)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false, false)}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
 
-	if outcome.Logs[0].Target != "+6681XXX5678" {
-		t.Fatalf("expected masked target, got %s", outcome.Logs[0].Target)
+	for _, logEntry := range outcome.Logs {
+		if logEntry.Target != "+6681XXX5678" {
+			t.Fatalf("expected masked target on %s, got %s", logEntry.Channel, logEntry.Target)
+		}
 	}
 }
 
 func TestDispatchCollectsGoneSubscriptions(t *testing.T) {
 	push := &fakeProvider{channel: constant.ChannelPush, fail: true, gone: true}
 	dispatcher := NewDispatcher(push)
-	recipient := verifiedCheckIn(true, false)
+	recipient := verifiedCheckIn(true)
 
 	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{recipient}, dispatchTemplate(), time.Hour)
 

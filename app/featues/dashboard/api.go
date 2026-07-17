@@ -59,21 +59,18 @@ func handleSummary(ctx *gin.Context, repository *domain.Repository) {
 		return
 	}
 	active := alerting.FilterEligibleRecipients(checkIns, now)
-	totalPeople, pushCount, lineCount := 0, 0, 0
+	totalPeople, pushCount := 0, 0
 	for _, checkIn := range active {
 		totalPeople += checkIn.GroupSize
 		if checkIn.HasPush() {
 			pushCount++
-		}
-		if checkIn.HasLine() {
-			lineCount++
 		}
 	}
 	response.Ok(ctx, gin.H{
 		"activeCheckIns": len(active),
 		"totalPeople":    totalPeople,
 		"pushEnabled":    pushCount,
-		"lineEnabled":    lineCount,
+		"lineEnabled":    len(active),
 		"branchId":       branchId,
 		"asOf":           now,
 	})
@@ -87,7 +84,6 @@ type checkInListItem struct {
 	GroupSize   int       `json:"groupSize"`
 	CheckedInAt time.Time `json:"checkedInAt"`
 	HasPush     bool      `json:"hasPush"`
-	HasLine     bool      `json:"hasLine"`
 }
 
 func handleCheckInList(ctx *gin.Context, repository *domain.Repository) {
@@ -113,7 +109,6 @@ func handleCheckInList(ctx *gin.Context, repository *domain.Repository) {
 			GroupSize:   checkIn.GroupSize,
 			CheckedInAt: checkIn.CheckedInAt,
 			HasPush:     checkIn.HasPush(),
-			HasLine:     checkIn.HasLine(),
 		})
 	}
 	repository.AuditLog.Record(entities.AuditLog{

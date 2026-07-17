@@ -382,7 +382,7 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Ok" }
     put:
-      summary: Update per-tenant messaging config; blank secret fields keep existing values, unset fields fall back to server env defaults
+      summary: Update per-tenant messaging config; blank secret fields keep existing values, unset fields fall back to server env defaults. Web Push is always on; SMS and LINE alert channels are opt-in via smsEnabled/lineEnabled (default off).
       security: [{ staffBearer: [] }]
       requestBody:
         content:
@@ -390,6 +390,8 @@ paths:
             schema:
               type: object
               properties:
+                smsEnabled: { type: boolean, default: false }
+                lineEnabled: { type: boolean, default: false }
                 smsApiUrl: { type: string }
                 smsBalanceUrl: { type: string }
                 smsApiKey: { type: string }

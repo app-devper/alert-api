@@ -30,6 +30,9 @@ gofmt -w <file>
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBSCRIBER` | Web Push (ระดับแอป ใช้ร่วมทุก tenant) |
 | `LINE_CHANNEL_TOKEN`, `LINE_CHANNEL_SECRET` | **fallback** ของ LINE OA (LON) — ตั้งจริงต่อร้านผ่าน messaging config |
 
+**ช่องทางแจ้งเตือน:** Web Push เปิดเสมอ (default) — SMS และ LINE เป็น opt-in ต่อร้านผ่าน
+`smsEnabled`/`lineEnabled` (default ปิด เพราะมีค่าใช้จ่ายต่อข้อความ); โหมดทดสอบต้องเปิด SMS ก่อน
+
 **SMS/LINE config ต่อ clientId:** แต่ละร้านตั้ง gateway + Sender ID + LINE OA ของตัวเองใน
 collection `messaging_configs` (tenant DB) ผ่าน `GET|PUT /admin/messaging-config`
 (GET ตอบแบบ mask, PUT เว้น secret ว่าง = คงค่าเดิม) — ค่าใดไม่ตั้งจะ fallback เป็น env

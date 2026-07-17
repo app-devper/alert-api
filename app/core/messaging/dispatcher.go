@@ -31,11 +31,14 @@ func NewDispatcher(providers ...MessageProvider) *Dispatcher {
 }
 
 func (d *Dispatcher) DispatchAlert(cfg ProviderConfig, event entities.EmergencyEvent, recipients []entities.CheckIn, template entities.MessageTemplate, logTtl time.Duration) DispatchOutcome {
-	messagesByChannel := buildMessages(event.ClientId, recipients, template)
+	messagesByChannel := buildMessages(cfg, event.ClientId, recipients, template)
 	return d.dispatch(cfg, event, messagesByChannel, logTtl)
 }
 
 func (d *Dispatcher) DispatchTest(cfg ProviderConfig, event entities.EmergencyEvent, testRecipients []entities.StaffPermission, template entities.MessageTemplate, logTtl time.Duration) DispatchOutcome {
+	if !cfg.SmsEnabled {
+		return DispatchOutcome{}
+	}
 	messages := make([]OutboundMessage, 0, len(testRecipients))
 	for _, recipient := range testRecipients {
 		messages = append(messages, OutboundMessage{
@@ -48,16 +51,18 @@ func (d *Dispatcher) DispatchTest(cfg ProviderConfig, event entities.EmergencyEv
 	return d.dispatch(cfg, event, map[string][]OutboundMessage{constant.ChannelSms: messages}, logTtl)
 }
 
-func buildMessages(clientId string, recipients []entities.CheckIn, template entities.MessageTemplate) map[string][]OutboundMessage {
+func buildMessages(cfg ProviderConfig, clientId string, recipients []entities.CheckIn, template entities.MessageTemplate) map[string][]OutboundMessage {
 	byChannel := map[string][]OutboundMessage{}
 	for _, recipient := range recipients {
 		key := recipient.Id.Hex()
-		byChannel[constant.ChannelSms] = append(byChannel[constant.ChannelSms], OutboundMessage{
-			RecipientKey: key,
-			TenantId:     clientId,
-			Target:       recipient.Phone,
-			Text:         alerting.MessageFor(template, recipient.PreferredLanguage, constant.ChannelSms),
-		})
+		if cfg.SmsEnabled {
+			byChannel[constant.ChannelSms] = append(byChannel[constant.ChannelSms], OutboundMessage{
+				RecipientKey: key,
+				TenantId:     clientId,
+				Target:       recipient.Phone,
+				Text:         alerting.MessageFor(template, recipient.PreferredLanguage, constant.ChannelSms),
+			})
+		}
 		if recipient.HasPush() {
 			byChannel[constant.ChannelPush] = append(byChannel[constant.ChannelPush], OutboundMessage{
 				RecipientKey: key,
@@ -71,12 +76,14 @@ func buildMessages(clientId string, recipients []entities.CheckIn, template enti
 				},
 			})
 		}
-		byChannel[constant.ChannelLine] = append(byChannel[constant.ChannelLine], OutboundMessage{
-			RecipientKey: key,
-			TenantId:     clientId,
-			Target:       recipient.Phone,
-			Text:         alerting.MessageFor(template, recipient.PreferredLanguage, constant.ChannelLine),
-		})
+		if cfg.LineEnabled {
+			byChannel[constant.ChannelLine] = append(byChannel[constant.ChannelLine], OutboundMessage{
+				RecipientKey: key,
+				TenantId:     clientId,
+				Target:       recipient.Phone,
+				Text:         alerting.MessageFor(template, recipient.PreferredLanguage, constant.ChannelLine),
+			})
+		}
 	}
 	return byChannel
 }

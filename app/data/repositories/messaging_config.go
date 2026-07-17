@@ -55,6 +55,8 @@ func (entity *messagingConfigEntity) UpsertConfig(config entities.MessagingConfi
 	_, err = col.UpdateOne(ctx,
 		bson.M{"clientId": config.ClientId},
 		bson.M{"$set": bson.M{
+			"smsEnabled":        config.SmsEnabled,
+			"lineEnabled":       config.LineEnabled,
 			"smsApiUrl":         config.SmsApiUrl,
 			"smsBalanceUrl":     config.SmsBalanceUrl,
 			"smsApiKey":         config.SmsApiKey,

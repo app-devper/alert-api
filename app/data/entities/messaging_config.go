@@ -9,6 +9,8 @@ import (
 type MessagingConfig struct {
 	Id                primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	ClientId          string             `bson:"clientId" json:"clientId"`
+	SmsEnabled        bool               `bson:"smsEnabled" json:"smsEnabled"`
+	LineEnabled       bool               `bson:"lineEnabled" json:"lineEnabled"`
 	SmsApiUrl         string             `bson:"smsApiUrl" json:"smsApiUrl"`
 	SmsBalanceUrl     string             `bson:"smsBalanceUrl" json:"smsBalanceUrl"`
 	SmsApiKey         string             `bson:"smsApiKey" json:"-"`

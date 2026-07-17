@@ -3,6 +3,8 @@ package messaging
 import "os"
 
 type ProviderConfig struct {
+	SmsEnabled        bool
+	LineEnabled       bool
 	SmsApiUrl         string
 	SmsBalanceUrl     string
 	SmsApiKey         string
@@ -28,6 +30,8 @@ func EnvProviderConfig() ProviderConfig {
 
 func (c ProviderConfig) MergedOver(fallback ProviderConfig) ProviderConfig {
 	return ProviderConfig{
+		SmsEnabled:        c.SmsEnabled,
+		LineEnabled:       c.LineEnabled,
 		SmsApiUrl:         firstNonEmpty(c.SmsApiUrl, fallback.SmsApiUrl),
 		SmsBalanceUrl:     firstNonEmpty(c.SmsBalanceUrl, fallback.SmsBalanceUrl),
 		SmsApiKey:         firstNonEmpty(c.SmsApiKey, fallback.SmsApiKey),

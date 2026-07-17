@@ -42,6 +42,8 @@ type CreateQr struct {
 }
 
 type UpdateMessagingConfig struct {
+	SmsEnabled        bool   `json:"smsEnabled"`
+	LineEnabled       bool   `json:"lineEnabled"`
 	SmsApiUrl         string `json:"smsApiUrl"`
 	SmsBalanceUrl     string `json:"smsBalanceUrl"`
 	SmsApiKey         string `json:"smsApiKey"`

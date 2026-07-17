@@ -10,6 +10,7 @@ import (
 	"alert/app/core/constant"
 	"alert/app/core/errcode"
 	"alert/app/data/repositories"
+	"alert/db"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -66,7 +67,11 @@ func RequireAuthenticated() gin.HandlerFunc {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_003, "system invalid")
 			return
 		}
-		if config.clientId != claims.ClientId {
+		if err := db.ValidateClientID(claims.ClientId); err != nil {
+			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_004, "clientId invalid")
+			return
+		}
+		if config.clientId != "" && config.clientId != claims.ClientId {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_004, "clientId invalid")
 			return
 		}
@@ -131,9 +136,6 @@ func loadAuthConfig() (*authConfig, error) {
 	}
 
 	clientId := os.Getenv("CLIENT_ID")
-	if clientId == "" {
-		return nil, errors.New("missing required env: CLIENT_ID")
-	}
 
 	system := os.Getenv("SYSTEM")
 	if system == "" {

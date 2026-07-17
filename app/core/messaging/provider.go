@@ -8,6 +8,7 @@ type PushTarget struct {
 
 type OutboundMessage struct {
 	RecipientKey string
+	TenantId     string
 	Target       string
 	Text         string
 	Push         *PushTarget
@@ -24,11 +25,11 @@ type SendResult struct {
 
 type MessageProvider interface {
 	Channel() string
-	Send(messages []OutboundMessage) []SendResult
+	Send(cfg ProviderConfig, messages []OutboundMessage) []SendResult
 }
 
 type BalanceChecker interface {
-	Balance() (int64, error)
+	Balance(cfg ProviderConfig) (int64, error)
 }
 
 func failAll(messages []OutboundMessage, reason string) []SendResult {

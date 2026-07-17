@@ -14,28 +14,36 @@ import (
 )
 
 type messageTemplateEntity struct {
-	col *mongo.Collection
+	mongo *db.Manager
 }
 
 type IMessageTemplate interface {
 	GetTemplates(clientId string) ([]entities.MessageTemplate, error)
-	GetTemplateById(id primitive.ObjectID) (entities.MessageTemplate, error)
+	GetTemplateById(clientId string, id primitive.ObjectID) (entities.MessageTemplate, error)
 	GetActiveTemplateByCode(clientId string, code string) (entities.MessageTemplate, error)
 	CreateTemplate(template entities.MessageTemplate) (entities.MessageTemplate, error)
-	UpdateTemplate(id primitive.ObjectID, template entities.MessageTemplate) error
-	SetActive(id primitive.ObjectID, active bool, updatedBy string) error
+	UpdateTemplate(clientId string, id primitive.ObjectID, template entities.MessageTemplate) error
+	SetActive(clientId string, id primitive.ObjectID, active bool, updatedBy string) error
 	CountActiveByCode(clientId string, code string, excludeId *primitive.ObjectID) (int64, error)
 }
 
 func NewMessageTemplateEntity(resource *db.Resource) IMessageTemplate {
-	return &messageTemplateEntity{col: resource.AlertDb.Collection("message_templates")}
+	return &messageTemplateEntity{mongo: resource.Mongo}
+}
+
+func (entity *messageTemplateEntity) collection(clientId string) (*mongo.Collection, error) {
+	return entity.mongo.CollectionFor(clientId, db.CollectionMessageTemplates)
 }
 
 func (entity *messageTemplateEntity) GetTemplates(clientId string) ([]entities.MessageTemplate, error) {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	opts := options.Find().SetSort(bson.D{{Key: "code", Value: 1}})
-	cursor, err := entity.col.Find(ctx, bson.M{"clientId": clientId}, opts)
+	cursor, err := col.Find(ctx, bson.M{"clientId": clientId}, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -46,35 +54,51 @@ func (entity *messageTemplateEntity) GetTemplates(clientId string) ([]entities.M
 	return templates, nil
 }
 
-func (entity *messageTemplateEntity) GetTemplateById(id primitive.ObjectID) (entities.MessageTemplate, error) {
+func (entity *messageTemplateEntity) GetTemplateById(clientId string, id primitive.ObjectID) (entities.MessageTemplate, error) {
+	var template entities.MessageTemplate
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return template, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	var template entities.MessageTemplate
-	err := entity.col.FindOne(ctx, bson.M{"_id": id}).Decode(&template)
+	err = col.FindOne(ctx, bson.M{"_id": id}).Decode(&template)
 	return template, err
 }
 
 func (entity *messageTemplateEntity) GetActiveTemplateByCode(clientId string, code string) (entities.MessageTemplate, error) {
+	var template entities.MessageTemplate
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return template, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	var template entities.MessageTemplate
-	err := entity.col.FindOne(ctx, bson.M{"clientId": clientId, "code": code, "active": true}).Decode(&template)
+	err = col.FindOne(ctx, bson.M{"clientId": clientId, "code": code, "active": true}).Decode(&template)
 	return template, err
 }
 
 func (entity *messageTemplateEntity) CreateTemplate(template entities.MessageTemplate) (entities.MessageTemplate, error) {
+	col, err := entity.collection(template.ClientId)
+	if err != nil {
+		return template, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	template.Id = primitive.NewObjectID()
 	template.UpdatedAt = time.Now()
-	_, err := entity.col.InsertOne(ctx, template)
+	_, err = col.InsertOne(ctx, template)
 	return template, err
 }
 
-func (entity *messageTemplateEntity) UpdateTemplate(id primitive.ObjectID, template entities.MessageTemplate) error {
+func (entity *messageTemplateEntity) UpdateTemplate(clientId string, id primitive.ObjectID, template entities.MessageTemplate) error {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := entity.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
+	_, err = col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
 		"textTh":           template.TextTh,
 		"textEn":           template.TextEn,
 		"channelOverrides": template.ChannelOverrides,
@@ -85,10 +109,14 @@ func (entity *messageTemplateEntity) UpdateTemplate(id primitive.ObjectID, templ
 	return err
 }
 
-func (entity *messageTemplateEntity) SetActive(id primitive.ObjectID, active bool, updatedBy string) error {
+func (entity *messageTemplateEntity) SetActive(clientId string, id primitive.ObjectID, active bool, updatedBy string) error {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := entity.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
+	_, err = col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
 		"active":    active,
 		"updatedBy": updatedBy,
 		"updatedAt": time.Now(),
@@ -97,11 +125,15 @@ func (entity *messageTemplateEntity) SetActive(id primitive.ObjectID, active boo
 }
 
 func (entity *messageTemplateEntity) CountActiveByCode(clientId string, code string, excludeId *primitive.ObjectID) (int64, error) {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return 0, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	filter := bson.M{"clientId": clientId, "code": code, "active": true}
 	if excludeId != nil {
 		filter["_id"] = bson.M{"$ne": *excludeId}
 	}
-	return entity.col.CountDocuments(ctx, filter)
+	return col.CountDocuments(ctx, filter)
 }

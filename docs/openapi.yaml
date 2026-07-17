@@ -17,6 +17,7 @@ components:
       type: apiKey
       in: header
       name: X-Session-Token
+      description: Tenant-scoped session token in the form <clientId>.<token>, issued by the OTP verify endpoint. QR tokens and checkInId values share the same <clientId>.<value> shape so the API can route to the tenant database.
   schemas:
     Envelope:
       type: object
@@ -178,12 +179,28 @@ paths:
       security: [{ customerSession: [] }]
       responses:
         "200": { $ref: "#/components/responses/Ok" }
-  /public/me/line:
+  /webhook/line:
     post:
-      summary: Link LINE userId to current check-in
-      security: [{ customerSession: [] }]
+      summary: LINE webhook — delivery completion events for LINE Official Notification (PNP) pushes; matched to delivery_logs via X-Line-Delivery-Tag (signature in X-Line-Signature)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                events:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string, example: delivery }
+                      delivery:
+                        type: object
+                        properties:
+                          data: { type: string, description: the X-Line-Delivery-Tag of the original push }
       responses:
         "200": { $ref: "#/components/responses/Ok" }
+        "401": { description: invalid signature }
   /public/me/withdraw:
     post:
       summary: Withdraw consent — immediately deletes the check-in (PDPA)
@@ -354,8 +371,35 @@ paths:
             image/png: {}
   /admin/sms-credit:
     get:
-      summary: SMS gateway credit balance vs threshold
+      summary: SMS gateway credit balance vs threshold (uses the tenant's messaging config)
       security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/messaging-config:
+    get:
+      summary: Per-tenant SMS gateway and LINE OA (LON) config — secrets returned masked
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    put:
+      summary: Update per-tenant messaging config; blank secret fields keep existing values, unset fields fall back to server env defaults. Web Push is always on; SMS and LINE alert channels are opt-in via smsEnabled/lineEnabled (default off).
+      security: [{ staffBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                smsEnabled: { type: boolean, default: false }
+                lineEnabled: { type: boolean, default: false }
+                smsApiUrl: { type: string }
+                smsBalanceUrl: { type: string }
+                smsApiKey: { type: string }
+                smsApiSecret: { type: string }
+                smsSenderId: { type: string }
+                smsWebhookSecret: { type: string }
+                lineChannelToken: { type: string }
+                lineChannelSecret: { type: string }
       responses:
         "200": { $ref: "#/components/responses/Ok" }
   /webhook/sms:

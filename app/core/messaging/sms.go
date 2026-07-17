@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"alert/app/core/constant"
@@ -18,22 +17,12 @@ const smsBatchSize = 100
 const smsMaxRetries = 3
 
 type smsProvider struct {
-	apiUrl     string
-	balanceUrl string
-	apiKey     string
-	apiSecret  string
-	senderId   string
-	client     *http.Client
+	client *http.Client
 }
 
 func NewSmsProvider() MessageProvider {
 	return &smsProvider{
-		apiUrl:     os.Getenv("SMS_API_URL"),
-		balanceUrl: os.Getenv("SMS_BALANCE_URL"),
-		apiKey:     os.Getenv("SMS_API_KEY"),
-		apiSecret:  os.Getenv("SMS_API_SECRET"),
-		senderId:   os.Getenv("SMS_SENDER_ID"),
-		client:     &http.Client{Timeout: 15 * time.Second},
+		client: &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -41,18 +30,14 @@ func (p *smsProvider) Channel() string {
 	return constant.ChannelSms
 }
 
-func (p *smsProvider) isConfigured() bool {
-	return p.apiUrl != "" && p.apiKey != "" && p.senderId != ""
-}
-
-func (p *smsProvider) Send(messages []OutboundMessage) []SendResult {
-	if !p.isConfigured() {
+func (p *smsProvider) Send(cfg ProviderConfig, messages []OutboundMessage) []SendResult {
+	if !cfg.HasSms() {
 		logrus.Warn("sms provider not configured, logging only")
 		return simulateSuccess(messages, "SMS")
 	}
 	results := make([]SendResult, 0, len(messages))
 	for _, batch := range groupByText(messages, smsBatchSize) {
-		results = append(results, p.sendBatch(batch)...)
+		results = append(results, p.sendBatch(cfg, batch)...)
 	}
 	return results
 }
@@ -66,13 +51,13 @@ type smsApiResponse struct {
 	} `json:"messages"`
 }
 
-func (p *smsProvider) sendBatch(batch []OutboundMessage) []SendResult {
+func (p *smsProvider) sendBatch(cfg ProviderConfig, batch []OutboundMessage) []SendResult {
 	targets := make([]string, 0, len(batch))
 	for _, message := range batch {
 		targets = append(targets, message.Target)
 	}
 	payload, err := json.Marshal(map[string]interface{}{
-		"sender":  p.senderId,
+		"sender":  cfg.SmsSenderId,
 		"msisdn":  targets,
 		"message": batch[0].Text,
 	})
@@ -80,7 +65,7 @@ func (p *smsProvider) sendBatch(batch []OutboundMessage) []SendResult {
 		return failAll(batch, err.Error())
 	}
 
-	body, err := p.postWithRetry(p.apiUrl, payload)
+	body, err := p.postWithRetry(cfg, cfg.SmsApiUrl, payload)
 	if err != nil {
 		return failAll(batch, err.Error())
 	}
@@ -113,10 +98,10 @@ func (p *smsProvider) sendBatch(batch []OutboundMessage) []SendResult {
 	return results
 }
 
-func (p *smsProvider) postWithRetry(url string, payload []byte) ([]byte, error) {
+func (p *smsProvider) postWithRetry(cfg ProviderConfig, url string, payload []byte) ([]byte, error) {
 	var lastErr error
 	for attempt := 1; attempt <= smsMaxRetries; attempt++ {
-		body, status, err := p.post(url, payload)
+		body, status, err := p.post(cfg, url, payload)
 		if err == nil && status < 500 {
 			if status >= 400 {
 				return nil, fmt.Errorf("sms gateway rejected request: %d %s", status, string(body))
@@ -135,13 +120,13 @@ func (p *smsProvider) postWithRetry(url string, payload []byte) ([]byte, error) 
 	return nil, lastErr
 }
 
-func (p *smsProvider) post(url string, payload []byte) ([]byte, int, error) {
+func (p *smsProvider) post(cfg ProviderConfig, url string, payload []byte) ([]byte, int, error) {
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(p.apiKey, p.apiSecret)
+	req.SetBasicAuth(cfg.SmsApiKey, cfg.SmsApiSecret)
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, 0, err
@@ -152,15 +137,15 @@ func (p *smsProvider) post(url string, payload []byte) ([]byte, int, error) {
 	return buf.Bytes(), resp.StatusCode, nil
 }
 
-func (p *smsProvider) Balance() (int64, error) {
-	if !p.isConfigured() || p.balanceUrl == "" {
+func (p *smsProvider) Balance(cfg ProviderConfig) (int64, error) {
+	if !cfg.HasSms() || cfg.SmsBalanceUrl == "" {
 		return 0, errors.New("sms balance endpoint not configured")
 	}
-	req, err := http.NewRequest(http.MethodGet, p.balanceUrl, nil)
+	req, err := http.NewRequest(http.MethodGet, cfg.SmsBalanceUrl, nil)
 	if err != nil {
 		return 0, err
 	}
-	req.SetBasicAuth(p.apiKey, p.apiSecret)
+	req.SetBasicAuth(cfg.SmsApiKey, cfg.SmsApiSecret)
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return 0, err

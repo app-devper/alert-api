@@ -41,7 +41,9 @@ func ApplyCheckInAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	})
 
 	me := r.Group("/me", requireCustomerSession(repository))
-	me.GET("", handleMe)
+	me.GET("", func(ctx *gin.Context) {
+		handleMe(ctx, repository)
+	})
 	me.POST("/checkout", func(ctx *gin.Context) {
 		handleSelfCheckout(ctx, repository)
 	})
@@ -51,16 +53,19 @@ func ApplyCheckInAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	me.DELETE("/push", func(ctx *gin.Context) {
 		handlePushUnsubscribe(ctx, repository)
 	})
-	me.POST("/line", func(ctx *gin.Context) {
-		handleLineLink(ctx, repository)
-	})
 	me.POST("/withdraw", func(ctx *gin.Context) {
 		handleWithdrawConsent(ctx, repository)
 	})
 }
 
 func handleResolveQr(ctx *gin.Context, repository *domain.Repository) {
-	qrToken, err := repository.QrToken.GetActiveByToken(ctx.Param("token"))
+	token := ctx.Param("token")
+	clientId, _, err := alerting.SplitTenantRef(token)
+	if err != nil {
+		errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
+		return
+	}
+	qrToken, err := repository.QrToken.GetActiveByToken(clientId, token)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
 		return
@@ -81,11 +86,15 @@ func handleResolveQr(ctx *gin.Context, repository *domain.Repository) {
 }
 
 func requireCustomerSession(repository *domain.Repository) gin.HandlerFunc {
-	clientId := os.Getenv("CLIENT_ID")
 	return func(ctx *gin.Context) {
 		token := ctx.GetHeader("X-Session-Token")
 		if token == "" {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.CK_UNAUTHORIZED_001, "missing session token")
+			return
+		}
+		clientId, _, err := alerting.SplitTenantRef(token)
+		if err != nil {
+			errcode.Abort(ctx, http.StatusUnauthorized, errcode.CK_UNAUTHORIZED_001, "invalid session token")
 			return
 		}
 		checkIn, err := repository.CheckIn.GetCheckInBySessionTokenHash(clientId, alerting.HashToken(token))
@@ -104,7 +113,7 @@ func currentCheckIn(ctx *gin.Context) entities.CheckIn {
 	return checkIn
 }
 
-func handleMe(ctx *gin.Context) {
+func handleMe(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
 	status := "ACTIVE"
 	if checkIn.CheckedOutAt != nil {
@@ -112,6 +121,7 @@ func handleMe(ctx *gin.Context) {
 	} else if !checkIn.ExpiresAt.After(time.Now()) {
 		status = "EXPIRED"
 	}
+	channelConfig := repository.ProviderConfigFor(checkIn.ClientId)
 	response.Ok(ctx, gin.H{
 		"checkInNo":         checkIn.CheckInNo,
 		"branchId":          checkIn.BranchId,
@@ -124,9 +134,9 @@ func handleMe(ctx *gin.Context) {
 		"expiresAt":         checkIn.ExpiresAt,
 		"status":            status,
 		"channels": gin.H{
-			"sms":  true,
+			"sms":  channelConfig.SmsEnabled,
 			"push": checkIn.HasPush(),
-			"line": checkIn.HasLine(),
+			"line": channelConfig.LineEnabled,
 		},
 		"consent": gin.H{
 			"consentAt":            checkIn.ConsentAt,
@@ -137,7 +147,7 @@ func handleMe(ctx *gin.Context) {
 
 func handleSelfCheckout(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.Checkout(checkIn.Id, time.Now(), constant.CheckedOutBySelf); err != nil {
+	if err := repository.CheckIn.Checkout(checkIn.ClientId, checkIn.Id, time.Now(), constant.CheckedOutBySelf); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
@@ -155,7 +165,7 @@ func handlePushSubscribe(ctx *gin.Context, repository *domain.Repository) {
 		Endpoint: req.Endpoint,
 		Keys:     entities.PushKeys{P256dh: req.P256dh, Auth: req.Auth},
 	}
-	if err := repository.CheckIn.SetPushSubscription(checkIn.Id, subscription); err != nil {
+	if err := repository.CheckIn.SetPushSubscription(checkIn.ClientId, checkIn.Id, subscription); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
@@ -164,30 +174,16 @@ func handlePushSubscribe(ctx *gin.Context, repository *domain.Repository) {
 
 func handlePushUnsubscribe(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.ClearPushSubscription(checkIn.Id); err != nil {
+	if err := repository.CheckIn.ClearPushSubscription(checkIn.ClientId, checkIn.Id); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
 	response.Ok(ctx, gin.H{"push": false})
 }
 
-func handleLineLink(ctx *gin.Context, repository *domain.Repository) {
-	var req request.LineLink
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		errcode.Abort(ctx, http.StatusBadRequest, errcode.CK_BAD_REQUEST_001, err.Error())
-		return
-	}
-	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.SetLineUserId(checkIn.Id, req.LineUserId); err != nil {
-		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
-		return
-	}
-	response.Ok(ctx, gin.H{"line": true})
-}
-
 func handleWithdrawConsent(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.DeleteCheckIn(checkIn.Id); err != nil {
+	if err := repository.CheckIn.DeleteCheckIn(checkIn.ClientId, checkIn.Id); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
@@ -201,11 +197,16 @@ func handleWithdrawConsent(ctx *gin.Context, repository *domain.Repository) {
 	response.Ok(ctx, gin.H{"deleted": true})
 }
 
-func parseObjectId(ctx *gin.Context) (primitive.ObjectID, bool) {
-	id, err := primitive.ObjectIDFromHex(ctx.Param("id"))
+func parseCheckInRef(ctx *gin.Context) (string, primitive.ObjectID, bool) {
+	clientId, hex, err := alerting.SplitTenantRef(ctx.Param("id"))
 	if err != nil {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.CK_BAD_REQUEST_001, "invalid id")
-		return primitive.NilObjectID, false
+		return "", primitive.NilObjectID, false
 	}
-	return id, true
+	id, err := primitive.ObjectIDFromHex(hex)
+	if err != nil {
+		errcode.Abort(ctx, http.StatusBadRequest, errcode.CK_BAD_REQUEST_001, "invalid id")
+		return "", primitive.NilObjectID, false
+	}
+	return clientId, id, true
 }

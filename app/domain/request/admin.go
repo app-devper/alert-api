@@ -40,3 +40,16 @@ type CreateQr struct {
 	BranchId string `json:"branchId" binding:"required"`
 	TableNo  string `json:"tableNo"`
 }
+
+type UpdateMessagingConfig struct {
+	SmsEnabled        bool   `json:"smsEnabled"`
+	LineEnabled       bool   `json:"lineEnabled"`
+	SmsApiUrl         string `json:"smsApiUrl"`
+	SmsBalanceUrl     string `json:"smsBalanceUrl"`
+	SmsApiKey         string `json:"smsApiKey"`
+	SmsApiSecret      string `json:"smsApiSecret"`
+	SmsSenderId       string `json:"smsSenderId"`
+	SmsWebhookSecret  string `json:"smsWebhookSecret"`
+	LineChannelToken  string `json:"lineChannelToken"`
+	LineChannelSecret string `json:"lineChannelSecret"`
+}

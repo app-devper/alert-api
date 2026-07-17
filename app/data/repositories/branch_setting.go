@@ -14,7 +14,7 @@ import (
 )
 
 type branchSettingEntity struct {
-	col *mongo.Collection
+	mongo *db.Manager
 }
 
 type IBranchSetting interface {
@@ -24,7 +24,11 @@ type IBranchSetting interface {
 }
 
 func NewBranchSettingEntity(resource *db.Resource) IBranchSetting {
-	return &branchSettingEntity{col: resource.AlertDb.Collection("branch_settings")}
+	return &branchSettingEntity{mongo: resource.Mongo}
+}
+
+func (entity *branchSettingEntity) collection(clientId string) (*mongo.Collection, error) {
+	return entity.mongo.CollectionFor(clientId, db.CollectionBranchSettings)
 }
 
 func defaultSetting(clientId string, branchId string) entities.BranchSetting {
@@ -38,10 +42,14 @@ func defaultSetting(clientId string, branchId string) entities.BranchSetting {
 }
 
 func (entity *branchSettingEntity) GetSetting(clientId string, branchId string) (entities.BranchSetting, error) {
+	var setting entities.BranchSetting
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return setting, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	var setting entities.BranchSetting
-	err := entity.col.FindOne(ctx, bson.M{"clientId": clientId, "branchId": branchId}).Decode(&setting)
+	err = col.FindOne(ctx, bson.M{"clientId": clientId, "branchId": branchId}).Decode(&setting)
 	if err == mongo.ErrNoDocuments {
 		return defaultSetting(clientId, branchId), nil
 	}
@@ -58,10 +66,14 @@ func (entity *branchSettingEntity) GetSetting(clientId string, branchId string) 
 }
 
 func (entity *branchSettingEntity) UpsertSetting(setting entities.BranchSetting) error {
+	col, err := entity.collection(setting.ClientId)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	opts := options.Update().SetUpsert(true)
-	_, err := entity.col.UpdateOne(ctx,
+	_, err = col.UpdateOne(ctx,
 		bson.M{"clientId": setting.ClientId, "branchId": setting.BranchId},
 		bson.M{"$set": bson.M{
 			"shopName":           setting.ShopName,
@@ -77,10 +89,14 @@ func (entity *branchSettingEntity) UpsertSetting(setting entities.BranchSetting)
 }
 
 func (entity *branchSettingEntity) SetPinHash(clientId string, branchId string, pinHash string, confirmMethod string, updatedBy string) error {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	opts := options.Update().SetUpsert(true)
-	_, err := entity.col.UpdateOne(ctx,
+	_, err = col.UpdateOne(ctx,
 		bson.M{"clientId": clientId, "branchId": branchId},
 		bson.M{"$set": bson.M{
 			"pinHash":       pinHash,

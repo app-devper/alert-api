@@ -30,7 +30,6 @@ type CheckIn struct {
 	PrivacyNoticeVersion string             `bson:"privacyNoticeVersion" json:"privacyNoticeVersion"`
 	OtpVerifiedAt        *time.Time         `bson:"otpVerifiedAt" json:"otpVerifiedAt"`
 	PushSubscription     *PushSubscription  `bson:"pushSubscription" json:"-"`
-	LineUserId           string             `bson:"lineUserId" json:"-"`
 	SessionTokenHash     string             `bson:"sessionTokenHash" json:"-"`
 	CheckedInAt          time.Time          `bson:"checkedInAt" json:"checkedInAt"`
 	CheckedOutAt         *time.Time         `bson:"checkedOutAt" json:"checkedOutAt"`
@@ -40,8 +39,4 @@ type CheckIn struct {
 
 func (c CheckIn) HasPush() bool {
 	return c.PushSubscription != nil && c.PushSubscription.Endpoint != ""
-}
-
-func (c CheckIn) HasLine() bool {
-	return c.LineUserId != ""
 }

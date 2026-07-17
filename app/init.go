@@ -32,14 +32,13 @@ func (app Routes) StartGin() {
 	r.Use(middlewares.NewRecovery())
 	r.Use(middlewares.NewCors([]string{"*"}))
 
-	resource, err := db.InitResource()
+	resource, err := db.InitResource(domain.TemplateSeeder())
 	if err != nil {
 		logrus.Fatal("failed to init database: ", err)
 	}
 	defer resource.Close()
 
 	repository := domain.InitRepository(resource)
-	domain.SeedDefaultTemplates(repository, os.Getenv("CLIENT_ID"))
 
 	r.GET("/health", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})

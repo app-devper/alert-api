@@ -56,7 +56,7 @@ func handleRealAlert(ctx *gin.Context, repository *domain.Repository, req reques
 	}
 
 	logTtl := time.Duration(setting.RetentionHours) * time.Hour
-	outcome := repository.Dispatcher.DispatchAlert(event, recipients, template, logTtl)
+	outcome := repository.Dispatcher.DispatchAlert(repository.ProviderConfigFor(clientId), event, recipients, template, logTtl)
 	finalizeDispatch(repository, &event, outcome)
 
 	if req.EventType == constant.EventAllClear {
@@ -94,6 +94,11 @@ func handleTestAlert(ctx *gin.Context, repository *domain.Repository, req reques
 		errcode.Abort(ctx, http.StatusNotFound, errcode.TP_NOT_FOUND_001, "no active template for event type")
 		return
 	}
+	providerConfig := repository.ProviderConfigFor(clientId)
+	if !providerConfig.SmsEnabled {
+		errcode.Abort(ctx, http.StatusBadRequest, errcode.EM_BAD_REQUEST_002, "SMS channel is disabled for this client")
+		return
+	}
 	testRecipients, err := repository.StaffPermission.GetTestRecipients(clientId, branchId)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.EM_INTERNAL_001, err.Error())
@@ -111,7 +116,7 @@ func handleTestAlert(ctx *gin.Context, repository *domain.Repository, req reques
 	}
 
 	logTtl := time.Duration(setting.RetentionHours) * time.Hour
-	outcome := repository.Dispatcher.DispatchTest(event, testRecipients, template, logTtl)
+	outcome := repository.Dispatcher.DispatchTest(providerConfig, event, testRecipients, template, logTtl)
 	finalizeDispatch(repository, &event, outcome)
 
 	repository.AuditLog.Record(entities.AuditLog{
@@ -230,14 +235,14 @@ func createEvent(repository *domain.Repository, ctx *gin.Context, req request.Tr
 }
 
 func finalizeDispatch(repository *domain.Repository, event *entities.EmergencyEvent, outcome messaging.DispatchOutcome) {
-	if err := repository.DeliveryLog.CreateMany(outcome.Logs); err != nil {
+	if err := repository.DeliveryLog.CreateMany(event.ClientId, outcome.Logs); err != nil {
 		return
 	}
 	event.ChannelSummary = outcome.Summary
 	event.ProviderReference = outcome.ProviderReference
-	_ = repository.EmergencyEvent.UpdateChannelSummary(event.Id, outcome.Summary, outcome.ProviderReference)
+	_ = repository.EmergencyEvent.UpdateChannelSummary(event.ClientId, event.Id, outcome.Summary, outcome.ProviderReference)
 	for _, checkInId := range outcome.GoneSubscriptionIds {
-		_ = repository.CheckIn.ClearPushSubscription(checkInId)
+		_ = repository.CheckIn.ClearPushSubscription(event.ClientId, checkInId)
 	}
 }
 

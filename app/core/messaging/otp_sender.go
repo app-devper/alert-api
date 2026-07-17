@@ -6,7 +6,7 @@ import (
 )
 
 type OtpSender interface {
-	SendOtp(phone string, refCode string, otp string) error
+	SendOtp(cfg ProviderConfig, phone string, refCode string, otp string) error
 }
 
 type smsOtpSender struct {
@@ -17,9 +17,9 @@ func NewSmsOtpSender(provider MessageProvider) OtpSender {
 	return &smsOtpSender{provider: provider}
 }
 
-func (s *smsOtpSender) SendOtp(phone string, refCode string, otp string) error {
+func (s *smsOtpSender) SendOtp(cfg ProviderConfig, phone string, refCode string, otp string) error {
 	text := fmt.Sprintf("รหัสยืนยัน %s (Ref: %s) หมดอายุใน 5 นาที ห้ามบอกรหัสนี้แก่ผู้อื่น", otp, refCode)
-	results := s.provider.Send([]OutboundMessage{{RecipientKey: "otp", Target: phone, Text: text}})
+	results := s.provider.Send(cfg, []OutboundMessage{{RecipientKey: "otp", Target: phone, Text: text}})
 	if len(results) == 0 {
 		return errors.New("otp send produced no result")
 	}

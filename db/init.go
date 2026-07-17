@@ -14,8 +14,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const defaultDbPrefix = "alert"
+
 type Resource struct {
-	AlertDb     *mongo.Database
+	Mongo       *Manager
 	RdDb        *redis.Client
 	mongoClient *mongo.Client
 }
@@ -36,22 +38,28 @@ func (r *Resource) Close() {
 	}
 }
 
-func InitResource() (*Resource, error) {
+func InitResource(seeder Seeder) (*Resource, error) {
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Print(err)
 	}
 
 	host := os.Getenv("MONGO_HOST")
-	alertDbName := os.Getenv("MONGO_ALERT_DB_NAME")
+	dbPrefix := os.Getenv("MONGO_DB_PREFIX")
+	if dbPrefix == "" {
+		dbPrefix = defaultDbPrefix
+	}
 	mongoClient, err := mongo.NewClient(options.Client().ApplyURI(host))
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	err = mongoClient.Connect(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := mongoClient.Ping(ctx, nil); err != nil {
 		return nil, err
 	}
 
@@ -62,51 +70,44 @@ func InitResource() (*Resource, error) {
 	}
 	rdb := redis.NewClient(redisOp)
 
-	resource := &Resource{
-		AlertDb:     mongoClient.Database(alertDbName),
+	return &Resource{
+		Mongo:       NewManager(mongoClient, dbPrefix, seeder),
 		RdDb:        rdb,
 		mongoClient: mongoClient,
-	}
-	if err := ensureIndexes(resource.AlertDb); err != nil {
-		return nil, err
-	}
-	return resource, nil
+	}, nil
 }
 
-func ensureIndexes(database *mongo.Database) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
+func createTenantIndexes(ctx context.Context, database *mongo.Database) error {
 	ttl := options.Index().SetExpireAfterSeconds(0)
 
 	indexes := map[string][]mongo.IndexModel{
-		"check_ins": {
+		CollectionCheckIns: {
 			{Keys: bson.D{{Key: "expiresAt", Value: 1}}, Options: ttl},
 			{Keys: bson.D{{Key: "clientId", Value: 1}, {Key: "branchId", Value: 1}, {Key: "checkedOutAt", Value: 1}}},
 			{Keys: bson.D{{Key: "sessionTokenHash", Value: 1}}},
 		},
-		"otp_requests": {
+		CollectionOtpRequests: {
 			{Keys: bson.D{{Key: "expiresAt", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)},
 			{Keys: bson.D{{Key: "checkInId", Value: 1}}},
 		},
-		"delivery_logs": {
+		CollectionDeliveryLogs: {
 			{Keys: bson.D{{Key: "expiresAt", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)},
 			{Keys: bson.D{{Key: "eventId", Value: 1}}},
 			{Keys: bson.D{{Key: "providerReference", Value: 1}}},
 		},
-		"emergency_events": {
+		CollectionEmergencyEvents: {
 			{Keys: bson.D{{Key: "clientId", Value: 1}, {Key: "branchId", Value: 1}, {Key: "eventType", Value: 1}, {Key: "sentAt", Value: -1}}},
 		},
-		"audit_logs": {
+		CollectionAuditLogs: {
 			{Keys: bson.D{{Key: "clientId", Value: 1}, {Key: "occurredAt", Value: -1}}},
 		},
-		"qr_tokens": {
+		CollectionQrTokens: {
 			{Keys: bson.D{{Key: "token", Value: 1}}, Options: options.Index().SetUnique(true)},
 		},
-		"staff_permissions": {
+		CollectionStaffPermissions: {
 			{Keys: bson.D{{Key: "clientId", Value: 1}, {Key: "userId", Value: 1}}, Options: options.Index().SetUnique(true)},
 		},
-		"message_templates": {
+		CollectionMessageTemplates: {
 			{Keys: bson.D{{Key: "clientId", Value: 1}, {Key: "code", Value: 1}}},
 		},
 	}

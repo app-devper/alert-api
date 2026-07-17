@@ -142,6 +142,7 @@ func handleUpdateSetting(ctx *gin.Context, repository *domain.Repository) {
 		RetentionHours:     req.RetentionHours,
 		CooldownSeconds:    req.CooldownSeconds,
 		ConfirmMethod:      req.ConfirmMethod,
+		SkipOtp:            req.SkipOtp,
 		SmsCreditThreshold: req.SmsCreditThreshold,
 		ContactChannel:     req.ContactChannel,
 		UpdatedBy:          ctx.GetString("UserId"),

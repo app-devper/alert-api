@@ -1,7 +1,9 @@
 package request
 
 type CreateCheckIn struct {
-	QrToken              string `json:"qrToken" binding:"required"`
+	QrToken              string `json:"qrToken"`
+	ClientId             string `json:"clientId"`
+	BranchId             string `json:"branchId"`
 	Phone                string `json:"phone" binding:"required"`
 	GroupSize            int    `json:"groupSize" binding:"required,min=1,max=100"`
 	TableNo              string `json:"tableNo"`

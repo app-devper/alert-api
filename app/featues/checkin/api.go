@@ -12,6 +12,7 @@ import (
 	"alert/app/data/entities"
 	"alert/app/domain"
 	"alert/app/domain/request"
+	"alert/db"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -22,6 +23,10 @@ func ApplyCheckInAPI(route *gin.RouterGroup, repository *domain.Repository) {
 
 	r.GET("/qr/:token", func(ctx *gin.Context) {
 		handleResolveQr(ctx, repository)
+	})
+
+	r.GET("/branch", func(ctx *gin.Context) {
+		handleResolveBranch(ctx, repository)
 	})
 
 	r.POST("/check-ins", func(ctx *gin.Context) {
@@ -70,18 +75,33 @@ func handleResolveQr(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
 		return
 	}
-	setting, err := repository.BranchSetting.GetSetting(qrToken.ClientId, qrToken.BranchId)
+	respondBranchInfo(ctx, repository, qrToken.ClientId, qrToken.BranchId, qrToken.TableNo)
+}
+
+func handleResolveBranch(ctx *gin.Context, repository *domain.Repository) {
+	clientId := ctx.Query("clientId")
+	branchId := ctx.Query("branchId")
+	if err := db.ValidateClientID(clientId); err != nil || branchId == "" {
+		errcode.Abort(ctx, http.StatusBadRequest, errcode.CK_BAD_REQUEST_001, "clientId and branchId are required")
+		return
+	}
+	respondBranchInfo(ctx, repository, clientId, branchId, ctx.Query("tableNo"))
+}
+
+func respondBranchInfo(ctx *gin.Context, repository *domain.Repository, clientId string, branchId string, tableNo string) {
+	setting, err := repository.BranchSetting.GetSetting(clientId, branchId)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
 	response.Ok(ctx, gin.H{
-		"clientId":       qrToken.ClientId,
-		"branchId":       qrToken.BranchId,
-		"tableNo":        qrToken.TableNo,
+		"clientId":       clientId,
+		"branchId":       branchId,
+		"tableNo":        tableNo,
 		"shopName":       setting.ShopName,
 		"retentionHours": setting.RetentionHours,
 		"contactChannel": setting.ContactChannel,
+		"skipOtp":        setting.SkipOtp,
 	})
 }
 

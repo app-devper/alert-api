@@ -25,6 +25,8 @@ func handleGetMessagingConfig(ctx *gin.Context, repository *domain.Repository) {
 
 func maskedMessagingConfig(config entities.MessagingConfig) gin.H {
 	return gin.H{
+		"smsEnabled":           config.SmsEnabled,
+		"lineEnabled":          config.LineEnabled,
 		"smsApiUrl":            config.SmsApiUrl,
 		"smsBalanceUrl":        config.SmsBalanceUrl,
 		"smsSenderId":          config.SmsSenderId,
@@ -62,6 +64,8 @@ func handleUpdateMessagingConfig(ctx *gin.Context, repository *domain.Repository
 	}
 	config := entities.MessagingConfig{
 		ClientId:          clientId,
+		SmsEnabled:        req.SmsEnabled,
+		LineEnabled:       req.LineEnabled,
 		SmsApiUrl:         req.SmsApiUrl,
 		SmsBalanceUrl:     req.SmsBalanceUrl,
 		SmsSenderId:       req.SmsSenderId,
@@ -78,6 +82,8 @@ func handleUpdateMessagingConfig(ctx *gin.Context, repository *domain.Repository
 	}
 	auditAdmin(ctx, repository, constant.ActionUpdateSetting, bson.M{
 		"target":      "MESSAGING_CONFIG",
+		"smsEnabled":  req.SmsEnabled,
+		"lineEnabled": req.LineEnabled,
 		"smsSenderId": req.SmsSenderId,
 	})
 	response.Ok(ctx, maskedMessagingConfig(config))

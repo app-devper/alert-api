@@ -41,7 +41,9 @@ func ApplyCheckInAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	})
 
 	me := r.Group("/me", requireCustomerSession(repository))
-	me.GET("", handleMe)
+	me.GET("", func(ctx *gin.Context) {
+		handleMe(ctx, repository)
+	})
 	me.POST("/checkout", func(ctx *gin.Context) {
 		handleSelfCheckout(ctx, repository)
 	})
@@ -111,7 +113,7 @@ func currentCheckIn(ctx *gin.Context) entities.CheckIn {
 	return checkIn
 }
 
-func handleMe(ctx *gin.Context) {
+func handleMe(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
 	status := "ACTIVE"
 	if checkIn.CheckedOutAt != nil {
@@ -119,6 +121,7 @@ func handleMe(ctx *gin.Context) {
 	} else if !checkIn.ExpiresAt.After(time.Now()) {
 		status = "EXPIRED"
 	}
+	channelConfig := repository.ProviderConfigFor(checkIn.ClientId)
 	response.Ok(ctx, gin.H{
 		"checkInNo":         checkIn.CheckInNo,
 		"branchId":          checkIn.BranchId,
@@ -131,9 +134,9 @@ func handleMe(ctx *gin.Context) {
 		"expiresAt":         checkIn.ExpiresAt,
 		"status":            status,
 		"channels": gin.H{
-			"sms":  true,
+			"sms":  channelConfig.SmsEnabled,
 			"push": checkIn.HasPush(),
-			"line": true,
+			"line": channelConfig.LineEnabled,
 		},
 		"consent": gin.H{
 			"consentAt":            checkIn.ConsentAt,

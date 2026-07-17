@@ -15,6 +15,8 @@ func (r *Repository) ProviderConfigFor(clientId string) messaging.ProviderConfig
 
 func ProviderConfigFromEntity(config entities.MessagingConfig) messaging.ProviderConfig {
 	return messaging.ProviderConfig{
+		SmsEnabled:        config.SmsEnabled,
+		LineEnabled:       config.LineEnabled,
 		SmsApiUrl:         config.SmsApiUrl,
 		SmsBalanceUrl:     config.SmsBalanceUrl,
 		SmsApiKey:         config.SmsApiKey,

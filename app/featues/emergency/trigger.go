@@ -94,6 +94,11 @@ func handleTestAlert(ctx *gin.Context, repository *domain.Repository, req reques
 		errcode.Abort(ctx, http.StatusNotFound, errcode.TP_NOT_FOUND_001, "no active template for event type")
 		return
 	}
+	providerConfig := repository.ProviderConfigFor(clientId)
+	if !providerConfig.SmsEnabled {
+		errcode.Abort(ctx, http.StatusBadRequest, errcode.EM_BAD_REQUEST_002, "SMS channel is disabled for this client")
+		return
+	}
 	testRecipients, err := repository.StaffPermission.GetTestRecipients(clientId, branchId)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.EM_INTERNAL_001, err.Error())
@@ -111,7 +116,7 @@ func handleTestAlert(ctx *gin.Context, repository *domain.Repository, req reques
 	}
 
 	logTtl := time.Duration(setting.RetentionHours) * time.Hour
-	outcome := repository.Dispatcher.DispatchTest(repository.ProviderConfigFor(clientId), event, testRecipients, template, logTtl)
+	outcome := repository.Dispatcher.DispatchTest(providerConfig, event, testRecipients, template, logTtl)
 	finalizeDispatch(repository, &event, outcome)
 
 	repository.AuditLog.Record(entities.AuditLog{

@@ -21,7 +21,7 @@ func (p *fakeProvider) Channel() string {
 	return p.channel
 }
 
-func (p *fakeProvider) Send(messages []OutboundMessage) []SendResult {
+func (p *fakeProvider) Send(_ ProviderConfig, messages []OutboundMessage) []SendResult {
 	p.received = messages
 	results := make([]SendResult, 0, len(messages))
 	for _, message := range messages {
@@ -80,7 +80,7 @@ func TestDispatchSendsAllChannelsInParallel(t *testing.T) {
 	line := &fakeProvider{channel: constant.ChannelLine}
 	dispatcher := NewDispatcher(sms, push, line)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(true)}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(ProviderConfig{}, sampleEvent(), []entities.CheckIn{verifiedCheckIn(true)}, dispatchTemplate(), time.Hour)
 
 	if len(outcome.Logs) != 3 {
 		t.Fatalf("expected 3 delivery logs, got %d", len(outcome.Logs))
@@ -94,7 +94,7 @@ func TestDispatchLineTargetsPhoneNumberViaLon(t *testing.T) {
 	line := &fakeProvider{channel: constant.ChannelLine}
 	dispatcher := NewDispatcher(line)
 
-	dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
+	dispatcher.DispatchAlert(ProviderConfig{}, sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
 
 	if len(line.received) != 1 {
 		t.Fatalf("expected 1 line message, got %d", len(line.received))
@@ -110,7 +110,7 @@ func TestDispatchSkipsPushWithoutSubscription(t *testing.T) {
 	line := &fakeProvider{channel: constant.ChannelLine}
 	dispatcher := NewDispatcher(sms, push, line)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(ProviderConfig{}, sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
 
 	if len(outcome.Logs) != 2 {
 		t.Fatalf("expected 2 delivery logs (sms + line), got %d", len(outcome.Logs))
@@ -125,7 +125,7 @@ func TestDispatchChannelFailureDoesNotBlockOthers(t *testing.T) {
 	line := &fakeProvider{channel: constant.ChannelLine, fail: true}
 	dispatcher := NewDispatcher(sms, line)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(ProviderConfig{}, sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
 
 	if outcome.Summary.Sms.Sent != 1 {
 		t.Fatalf("sms must still send, got %+v", outcome.Summary)
@@ -140,7 +140,7 @@ func TestDispatchMasksPhoneTargetsInLogs(t *testing.T) {
 	line := &fakeProvider{channel: constant.ChannelLine}
 	dispatcher := NewDispatcher(sms, line)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(ProviderConfig{}, sampleEvent(), []entities.CheckIn{verifiedCheckIn(false)}, dispatchTemplate(), time.Hour)
 
 	for _, logEntry := range outcome.Logs {
 		if logEntry.Target != "+6681XXX5678" {
@@ -154,7 +154,7 @@ func TestDispatchCollectsGoneSubscriptions(t *testing.T) {
 	dispatcher := NewDispatcher(push)
 	recipient := verifiedCheckIn(true)
 
-	outcome := dispatcher.DispatchAlert(sampleEvent(), []entities.CheckIn{recipient}, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchAlert(ProviderConfig{}, sampleEvent(), []entities.CheckIn{recipient}, dispatchTemplate(), time.Hour)
 
 	if len(outcome.GoneSubscriptionIds) != 1 || outcome.GoneSubscriptionIds[0] != recipient.Id {
 		t.Fatalf("expected gone subscription for %s, got %v", recipient.Id.Hex(), outcome.GoneSubscriptionIds)
@@ -170,7 +170,7 @@ func TestDispatchTestSendsSmsToStaffOnly(t *testing.T) {
 		{Id: primitive.NewObjectID(), Phone: "+66897776666"},
 	}
 
-	outcome := dispatcher.DispatchTest(sampleEvent(), staff, dispatchTemplate(), time.Hour)
+	outcome := dispatcher.DispatchTest(ProviderConfig{}, sampleEvent(), staff, dispatchTemplate(), time.Hour)
 
 	if len(outcome.Logs) != 2 {
 		t.Fatalf("expected 2 logs, got %d", len(outcome.Logs))

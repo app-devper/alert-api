@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"alert/app/core/alerting"
@@ -34,7 +33,8 @@ func handleLineWebhook(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.WH_BAD_REQUEST_001, "unreadable body")
 		return
 	}
-	if !VerifyLineSignature(os.Getenv("LINE_CHANNEL_SECRET"), body, ctx.GetHeader("X-Line-Signature")) {
+	secret := repository.ProviderConfigFor(webhookClientId(ctx, repository)).LineChannelSecret
+	if !VerifyLineSignature(secret, body, ctx.GetHeader("X-Line-Signature")) {
 		errcode.Abort(ctx, http.StatusUnauthorized, errcode.WH_UNAUTHORIZED_001, "invalid signature")
 		return
 	}

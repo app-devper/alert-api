@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"alert/app/core/constant"
@@ -41,7 +40,8 @@ func handleSmsWebhook(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.WH_BAD_REQUEST_001, "unreadable body")
 		return
 	}
-	if !verifySignature(ctx.GetHeader("X-Webhook-Signature"), body) {
+	secret := repository.ProviderConfigFor(webhookClientId(ctx, repository)).SmsWebhookSecret
+	if !verifySignature(secret, ctx.GetHeader("X-Webhook-Signature"), body) {
 		errcode.Abort(ctx, http.StatusUnauthorized, errcode.WH_UNAUTHORIZED_001, "invalid signature")
 		return
 	}
@@ -72,6 +72,17 @@ func handleSmsWebhook(ctx *gin.Context, repository *domain.Repository) {
 	response.Ok(ctx, gin.H{"updated": updated})
 }
 
+func webhookClientId(ctx *gin.Context, repository *domain.Repository) string {
+	if clientId := ctx.Query("clientId"); clientId != "" {
+		return clientId
+	}
+	known := repository.Tenants.KnownClients()
+	if len(known) == 1 {
+		return known[0]
+	}
+	return ""
+}
+
 func candidateTenants(clientId string, repository *domain.Repository) []string {
 	if clientId != "" {
 		return []string{clientId}
@@ -79,8 +90,7 @@ func candidateTenants(clientId string, repository *domain.Repository) []string {
 	return repository.Tenants.KnownClients()
 }
 
-func verifySignature(signature string, body []byte) bool {
-	secret := os.Getenv("SMS_WEBHOOK_SECRET")
+func verifySignature(secret string, signature string, body []byte) bool {
 	if secret == "" {
 		return true
 	}

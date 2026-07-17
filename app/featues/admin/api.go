@@ -91,4 +91,12 @@ func ApplyAdminAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	r.GET("/sms-credit", func(ctx *gin.Context) {
 		handleSmsCredit(ctx, repository)
 	})
+
+	r.GET("/messaging-config", func(ctx *gin.Context) {
+		handleGetMessagingConfig(ctx, repository)
+	})
+
+	r.PUT("/messaging-config", func(ctx *gin.Context) {
+		handleUpdateMessagingConfig(ctx, repository)
+	})
 }

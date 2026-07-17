@@ -371,8 +371,33 @@ paths:
             image/png: {}
   /admin/sms-credit:
     get:
-      summary: SMS gateway credit balance vs threshold
+      summary: SMS gateway credit balance vs threshold (uses the tenant's messaging config)
       security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+  /admin/messaging-config:
+    get:
+      summary: Per-tenant SMS gateway and LINE OA (LON) config — secrets returned masked
+      security: [{ staffBearer: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    put:
+      summary: Update per-tenant messaging config; blank secret fields keep existing values, unset fields fall back to server env defaults
+      security: [{ staffBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                smsApiUrl: { type: string }
+                smsBalanceUrl: { type: string }
+                smsApiKey: { type: string }
+                smsApiSecret: { type: string }
+                smsSenderId: { type: string }
+                smsWebhookSecret: { type: string }
+                lineChannelToken: { type: string }
+                lineChannelSecret: { type: string }
       responses:
         "200": { $ref: "#/components/responses/Ok" }
   /webhook/sms:

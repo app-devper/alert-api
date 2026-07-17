@@ -25,11 +25,16 @@ gofmt -w <file>
 | `SYSTEM` | ตรวจ claim ของ token พนักงาน |
 | `CLIENT_ID` | (ไม่บังคับ) ถ้าตั้งค่า จะล็อก deployment ให้รับเฉพาะ tenant นั้น; เว้นว่าง = multi-tenant รับทุก clientId จาก JWT |
 | `CHECKIN_BASE_URL` | URL หน้าเช็กอินที่ฝังใน QR |
-| `SMS_API_URL`, `SMS_BALANCE_URL`, `SMS_API_KEY`, `SMS_API_SECRET`, `SMS_SENDER_ID` | Bulk SMS Gateway (Sender ID ต้องจดทะเบียน) |
-| `SMS_WEBHOOK_SECRET` | ตรวจ HMAC signature ของ delivery report |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBSCRIBER` | Web Push |
-| `LINE_CHANNEL_TOKEN` | LINE Official Notification (PNP) — OA ต้องเปิดใช้ LON กับ LINE ก่อน |
-| `LINE_CHANNEL_SECRET` | ตรวจ X-Line-Signature ของ delivery webhook |
+| `SMS_API_URL`, `SMS_BALANCE_URL`, `SMS_API_KEY`, `SMS_API_SECRET`, `SMS_SENDER_ID` | **ค่า default/fallback** ของ Bulk SMS Gateway — ตั้งจริงต่อร้านผ่าน `PUT /admin/messaging-config` |
+| `SMS_WEBHOOK_SECRET` | fallback secret ของ delivery report |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBSCRIBER` | Web Push (ระดับแอป ใช้ร่วมทุก tenant) |
+| `LINE_CHANNEL_TOKEN`, `LINE_CHANNEL_SECRET` | **fallback** ของ LINE OA (LON) — ตั้งจริงต่อร้านผ่าน messaging config |
+
+**SMS/LINE config ต่อ clientId:** แต่ละร้านตั้ง gateway + Sender ID + LINE OA ของตัวเองใน
+collection `messaging_configs` (tenant DB) ผ่าน `GET|PUT /admin/messaging-config`
+(GET ตอบแบบ mask, PUT เว้น secret ว่าง = คงค่าเดิม) — ค่าใดไม่ตั้งจะ fallback เป็น env
+Webhook ต่อร้านชี้มาที่ `/webhook/sms?clientId=<id>` และ `/webhook/line?clientId=<id>`
+เพื่อใช้ secret ของ tenant นั้นตรวจ signature
 
 Provider ใดไม่ตั้งค่า → โหมด dev จะ log ข้อความแทนการส่งจริง (simulated success)
 

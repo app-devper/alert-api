@@ -1,10 +1,16 @@
 package domain
 
 import (
+	"context"
+	"time"
+
 	"alert/app/core/constant"
 	"alert/app/data/entities"
+	"alert/db"
 
-	"github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var defaultTemplateTexts = map[string]entities.ChannelText{
@@ -42,27 +48,32 @@ var defaultTemplateTexts = map[string]entities.ChannelText{
 	},
 }
 
-func SeedDefaultTemplates(repository *Repository, clientId string) {
-	for _, code := range constant.EventTypes {
-		count, err := repository.MessageTemplate.CountActiveByCode(clientId, code, nil)
-		if err != nil {
-			logrus.Error("template seed check failed: ", err)
-			return
+func TemplateSeeder() db.Seeder {
+	return func(ctx context.Context, clientId string, database *mongo.Database) error {
+		col := database.Collection(db.CollectionMessageTemplates)
+		for _, code := range constant.EventTypes {
+			count, err := col.CountDocuments(ctx, bson.M{"clientId": clientId, "code": code, "active": true})
+			if err != nil {
+				return err
+			}
+			if count > 0 {
+				continue
+			}
+			texts := defaultTemplateTexts[code]
+			template := entities.MessageTemplate{
+				Id:        primitive.NewObjectID(),
+				ClientId:  clientId,
+				Code:      code,
+				TextTh:    texts.TextTh,
+				TextEn:    texts.TextEn,
+				Active:    true,
+				UpdatedBy: "SYSTEM",
+				UpdatedAt: time.Now(),
+			}
+			if _, err := col.InsertOne(ctx, template); err != nil {
+				return err
+			}
 		}
-		if count > 0 {
-			continue
-		}
-		texts := defaultTemplateTexts[code]
-		_, err = repository.MessageTemplate.CreateTemplate(entities.MessageTemplate{
-			ClientId:  clientId,
-			Code:      code,
-			TextTh:    texts.TextTh,
-			TextEn:    texts.TextEn,
-			Active:    true,
-			UpdatedBy: "SYSTEM",
-		})
-		if err != nil {
-			logrus.Error("template seed failed for ", code, ": ", err)
-		}
+		return nil
 	}
 }

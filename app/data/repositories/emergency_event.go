@@ -15,7 +15,7 @@ import (
 )
 
 type emergencyEventEntity struct {
-	col *mongo.Collection
+	mongo *db.Manager
 }
 
 type EventQuery struct {
@@ -30,40 +30,56 @@ type EventQuery struct {
 
 type IEmergencyEvent interface {
 	CreateEvent(event entities.EmergencyEvent) (entities.EmergencyEvent, error)
-	GetEventById(id primitive.ObjectID) (entities.EmergencyEvent, error)
+	GetEventById(clientId string, id primitive.ObjectID) (entities.EmergencyEvent, error)
 	GetLatestEvent(clientId string, branchId string, eventType string) (*entities.EmergencyEvent, error)
 	GetLatestOpenEvent(clientId string, branchId string) (*entities.EmergencyEvent, error)
 	QueryEvents(query EventQuery) ([]entities.EmergencyEvent, int64, error)
-	UpdateChannelSummary(id primitive.ObjectID, summary entities.ChannelSummary, providerReference string) error
+	UpdateChannelSummary(clientId string, id primitive.ObjectID, summary entities.ChannelSummary, providerReference string) error
 	CloseOpenEvents(clientId string, branchId string, closedAt time.Time) error
 }
 
 func NewEmergencyEventEntity(resource *db.Resource) IEmergencyEvent {
-	return &emergencyEventEntity{col: resource.AlertDb.Collection("emergency_events")}
+	return &emergencyEventEntity{mongo: resource.Mongo}
+}
+
+func (entity *emergencyEventEntity) collection(clientId string) (*mongo.Collection, error) {
+	return entity.mongo.CollectionFor(clientId, db.CollectionEmergencyEvents)
 }
 
 func (entity *emergencyEventEntity) CreateEvent(event entities.EmergencyEvent) (entities.EmergencyEvent, error) {
+	col, err := entity.collection(event.ClientId)
+	if err != nil {
+		return event, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	event.Id = primitive.NewObjectID()
-	_, err := entity.col.InsertOne(ctx, event)
+	_, err = col.InsertOne(ctx, event)
 	return event, err
 }
 
-func (entity *emergencyEventEntity) GetEventById(id primitive.ObjectID) (entities.EmergencyEvent, error) {
+func (entity *emergencyEventEntity) GetEventById(clientId string, id primitive.ObjectID) (entities.EmergencyEvent, error) {
+	var event entities.EmergencyEvent
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return event, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	var event entities.EmergencyEvent
-	err := entity.col.FindOne(ctx, bson.M{"_id": id}).Decode(&event)
+	err = col.FindOne(ctx, bson.M{"_id": id}).Decode(&event)
 	return event, err
 }
 
 func (entity *emergencyEventEntity) GetLatestEvent(clientId string, branchId string, eventType string) (*entities.EmergencyEvent, error) {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var event entities.EmergencyEvent
 	opts := options.FindOne().SetSort(bson.D{{Key: "sentAt", Value: -1}})
-	err := entity.col.FindOne(ctx, bson.M{"clientId": clientId, "branchId": branchId, "eventType": eventType}, opts).Decode(&event)
+	err = col.FindOne(ctx, bson.M{"clientId": clientId, "branchId": branchId, "eventType": eventType}, opts).Decode(&event)
 	if err == mongo.ErrNoDocuments {
 		return nil, nil
 	}
@@ -74,6 +90,10 @@ func (entity *emergencyEventEntity) GetLatestEvent(clientId string, branchId str
 }
 
 func (entity *emergencyEventEntity) GetLatestOpenEvent(clientId string, branchId string) (*entities.EmergencyEvent, error) {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var event entities.EmergencyEvent
@@ -84,7 +104,7 @@ func (entity *emergencyEventEntity) GetLatestOpenEvent(clientId string, branchId
 		"status":    constant.EventStatusOpen,
 		"eventType": bson.M{"$nin": bson.A{constant.EventAllClear, constant.EventTest}},
 	}
-	err := entity.col.FindOne(ctx, filter, opts).Decode(&event)
+	err = col.FindOne(ctx, filter, opts).Decode(&event)
 	if err == mongo.ErrNoDocuments {
 		return nil, nil
 	}
@@ -95,6 +115,10 @@ func (entity *emergencyEventEntity) GetLatestOpenEvent(clientId string, branchId
 }
 
 func (entity *emergencyEventEntity) QueryEvents(query EventQuery) ([]entities.EmergencyEvent, int64, error) {
+	col, err := entity.collection(query.ClientId)
+	if err != nil {
+		return nil, 0, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	filter := bson.M{"clientId": query.ClientId, "branchId": query.BranchId}
@@ -111,7 +135,7 @@ func (entity *emergencyEventEntity) QueryEvents(query EventQuery) ([]entities.Em
 	if len(sentAt) > 0 {
 		filter["sentAt"] = sentAt
 	}
-	total, err := entity.col.CountDocuments(ctx, filter)
+	total, err := col.CountDocuments(ctx, filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -127,7 +151,7 @@ func (entity *emergencyEventEntity) QueryEvents(query EventQuery) ([]entities.Em
 		SetSort(bson.D{{Key: "sentAt", Value: -1}}).
 		SetSkip((page - 1) * limit).
 		SetLimit(limit)
-	cursor, err := entity.col.Find(ctx, filter, opts)
+	cursor, err := col.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -138,10 +162,14 @@ func (entity *emergencyEventEntity) QueryEvents(query EventQuery) ([]entities.Em
 	return events, total, nil
 }
 
-func (entity *emergencyEventEntity) UpdateChannelSummary(id primitive.ObjectID, summary entities.ChannelSummary, providerReference string) error {
+func (entity *emergencyEventEntity) UpdateChannelSummary(clientId string, id primitive.ObjectID, summary entities.ChannelSummary, providerReference string) error {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := entity.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
+	_, err = col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
 		"channelSummary":    summary,
 		"providerReference": providerReference,
 	}})
@@ -149,9 +177,13 @@ func (entity *emergencyEventEntity) UpdateChannelSummary(id primitive.ObjectID, 
 }
 
 func (entity *emergencyEventEntity) CloseOpenEvents(clientId string, branchId string, closedAt time.Time) error {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := entity.col.UpdateMany(ctx,
+	_, err = col.UpdateMany(ctx,
 		bson.M{"clientId": clientId, "branchId": branchId, "status": constant.EventStatusOpen},
 		bson.M{"$set": bson.M{"status": constant.EventStatusClosed, "closedAt": closedAt}})
 	return err

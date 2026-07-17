@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"alert/app/core/alerting"
 	"alert/app/core/constant"
 
 	"github.com/sirupsen/logrus"
@@ -55,7 +56,7 @@ func (p *lineProvider) Send(messages []OutboundMessage) []SendResult {
 }
 
 func (p *lineProvider) sendOne(message OutboundMessage, index int) SendResult {
-	deliveryTag := fmt.Sprintf("lon-%d-%d", time.Now().UnixNano(), index)
+	deliveryTag := alerting.ComposeTenantRef(message.TenantId, fmt.Sprintf("lon-%d-%d", time.Now().UnixNano(), index))
 	payload, err := json.Marshal(map[string]interface{}{
 		"to": message.Target,
 		"messages": []map[string]string{

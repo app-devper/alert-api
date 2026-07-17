@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"alert/app/core/alerting"
 	"alert/app/core/constant"
 	"alert/app/core/errcode"
 	"alert/app/core/response"
@@ -48,7 +49,11 @@ func handleLineWebhook(ctx *gin.Context, repository *domain.Repository) {
 		if event.Type != "delivery" || event.Delivery.Data == "" {
 			continue
 		}
-		if _, err := repository.DeliveryLog.UpdateStatusByProviderReference(event.Delivery.Data, constant.DeliveryDelivered, "delivery", now); err == nil {
+		clientId, _, err := alerting.SplitTenantRef(event.Delivery.Data)
+		if err != nil {
+			continue
+		}
+		if _, err := repository.DeliveryLog.UpdateStatusByProviderReference(clientId, event.Delivery.Data, constant.DeliveryDelivered, "delivery", now); err == nil {
 			updated++
 		}
 	}

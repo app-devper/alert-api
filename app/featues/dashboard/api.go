@@ -134,7 +134,7 @@ func handleStaffCheckout(ctx *gin.Context, repository *domain.Repository) {
 		return
 	}
 	userId := ctx.GetString("UserId")
-	if err := repository.CheckIn.Checkout(id, time.Now(), "STAFF:"+userId); err != nil {
+	if err := repository.CheckIn.Checkout(ctx.GetString("ClientId"), id, time.Now(), "STAFF:"+userId); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.DA_INTERNAL_001, err.Error())
 		return
 	}
@@ -175,16 +175,17 @@ func handleEventDetail(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.DA_BAD_REQUEST_001, "invalid id")
 		return
 	}
-	event, err := repository.EmergencyEvent.GetEventById(id)
-	if err != nil || event.ClientId != ctx.GetString("ClientId") {
+	clientId := ctx.GetString("ClientId")
+	event, err := repository.EmergencyEvent.GetEventById(clientId, id)
+	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.EM_NOT_FOUND_001, "event not found")
 		return
 	}
-	summary, err := repository.DeliveryLog.SummarizeByEventId(id)
+	summary, err := repository.DeliveryLog.SummarizeByEventId(clientId, id)
 	if err == nil {
 		event.ChannelSummary = summary
 	}
-	failed, err := repository.DeliveryLog.GetFailedByEventId(id)
+	failed, err := repository.DeliveryLog.GetFailedByEventId(clientId, id)
 	if err != nil {
 		failed = []entities.DeliveryLog{}
 	}

@@ -8,12 +8,11 @@ import (
 	"alert/db"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type counterEntity struct {
-	col *mongo.Collection
+	mongo *db.Manager
 }
 
 type ICounter interface {
@@ -21,18 +20,22 @@ type ICounter interface {
 }
 
 func NewCounterEntity(resource *db.Resource) ICounter {
-	return &counterEntity{col: resource.AlertDb.Collection("counters")}
+	return &counterEntity{mongo: resource.Mongo}
 }
 
 func (entity *counterEntity) NextSequence(clientId string, prefix string, date time.Time) (int64, error) {
+	col, err := entity.mongo.CollectionFor(clientId, db.CollectionCounters)
+	if err != nil {
+		return 0, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	key := fmt.Sprintf("%s:%s:%s", clientId, prefix, date.Format("060102"))
+	key := fmt.Sprintf("%s:%s", prefix, date.Format("060102"))
 	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
 	var counter struct {
 		Seq int64 `bson:"seq"`
 	}
-	err := entity.col.FindOneAndUpdate(ctx,
+	err = col.FindOneAndUpdate(ctx,
 		bson.M{"_id": key},
 		bson.M{"$inc": bson.M{"seq": 1}},
 		opts).Decode(&counter)

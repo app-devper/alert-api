@@ -15,24 +15,32 @@ import (
 )
 
 type deliveryLogEntity struct {
-	col *mongo.Collection
+	mongo *db.Manager
 }
 
 type IDeliveryLog interface {
-	CreateMany(logs []entities.DeliveryLog) error
-	GetByEventId(eventId primitive.ObjectID) ([]entities.DeliveryLog, error)
-	GetFailedByEventId(eventId primitive.ObjectID) ([]entities.DeliveryLog, error)
-	UpdateStatusByProviderReference(providerReference string, status string, providerStatus string, at time.Time) (entities.DeliveryLog, error)
-	SummarizeByEventId(eventId primitive.ObjectID) (entities.ChannelSummary, error)
+	CreateMany(clientId string, logs []entities.DeliveryLog) error
+	GetByEventId(clientId string, eventId primitive.ObjectID) ([]entities.DeliveryLog, error)
+	GetFailedByEventId(clientId string, eventId primitive.ObjectID) ([]entities.DeliveryLog, error)
+	UpdateStatusByProviderReference(clientId string, providerReference string, status string, providerStatus string, at time.Time) (entities.DeliveryLog, error)
+	SummarizeByEventId(clientId string, eventId primitive.ObjectID) (entities.ChannelSummary, error)
 }
 
 func NewDeliveryLogEntity(resource *db.Resource) IDeliveryLog {
-	return &deliveryLogEntity{col: resource.AlertDb.Collection("delivery_logs")}
+	return &deliveryLogEntity{mongo: resource.Mongo}
 }
 
-func (entity *deliveryLogEntity) CreateMany(logs []entities.DeliveryLog) error {
+func (entity *deliveryLogEntity) collection(clientId string) (*mongo.Collection, error) {
+	return entity.mongo.CollectionFor(clientId, db.CollectionDeliveryLogs)
+}
+
+func (entity *deliveryLogEntity) CreateMany(clientId string, logs []entities.DeliveryLog) error {
 	if len(logs) == 0 {
 		return nil
+	}
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -43,23 +51,27 @@ func (entity *deliveryLogEntity) CreateMany(logs []entities.DeliveryLog) error {
 		}
 		docs = append(docs, logEntry)
 	}
-	_, err := entity.col.InsertMany(ctx, docs)
+	_, err = col.InsertMany(ctx, docs)
 	return err
 }
 
-func (entity *deliveryLogEntity) GetByEventId(eventId primitive.ObjectID) ([]entities.DeliveryLog, error) {
-	return entity.findByEvent(bson.M{"eventId": eventId})
+func (entity *deliveryLogEntity) GetByEventId(clientId string, eventId primitive.ObjectID) ([]entities.DeliveryLog, error) {
+	return entity.findByEvent(clientId, bson.M{"eventId": eventId})
 }
 
-func (entity *deliveryLogEntity) GetFailedByEventId(eventId primitive.ObjectID) ([]entities.DeliveryLog, error) {
-	return entity.findByEvent(bson.M{"eventId": eventId, "status": constant.DeliveryFailed})
+func (entity *deliveryLogEntity) GetFailedByEventId(clientId string, eventId primitive.ObjectID) ([]entities.DeliveryLog, error) {
+	return entity.findByEvent(clientId, bson.M{"eventId": eventId, "status": constant.DeliveryFailed})
 }
 
-func (entity *deliveryLogEntity) findByEvent(filter bson.M) ([]entities.DeliveryLog, error) {
+func (entity *deliveryLogEntity) findByEvent(clientId string, filter bson.M) ([]entities.DeliveryLog, error) {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	opts := options.Find().SetSort(bson.D{{Key: "queuedAt", Value: 1}})
-	cursor, err := entity.col.Find(ctx, filter, opts)
+	cursor, err := col.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -70,20 +82,28 @@ func (entity *deliveryLogEntity) findByEvent(filter bson.M) ([]entities.Delivery
 	return logs, nil
 }
 
-func (entity *deliveryLogEntity) UpdateStatusByProviderReference(providerReference string, status string, providerStatus string, at time.Time) (entities.DeliveryLog, error) {
+func (entity *deliveryLogEntity) UpdateStatusByProviderReference(clientId string, providerReference string, status string, providerStatus string, at time.Time) (entities.DeliveryLog, error) {
+	var updated entities.DeliveryLog
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return updated, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	set := bson.M{"status": status, "providerStatus": providerStatus}
 	if status == constant.DeliveryDelivered {
 		set["deliveredAt"] = at
 	}
-	var updated entities.DeliveryLog
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
-	err := entity.col.FindOneAndUpdate(ctx, bson.M{"providerReference": providerReference}, bson.M{"$set": set}, opts).Decode(&updated)
+	err = col.FindOneAndUpdate(ctx, bson.M{"providerReference": providerReference}, bson.M{"$set": set}, opts).Decode(&updated)
 	return updated, err
 }
 
-func (entity *deliveryLogEntity) SummarizeByEventId(eventId primitive.ObjectID) (entities.ChannelSummary, error) {
+func (entity *deliveryLogEntity) SummarizeByEventId(clientId string, eventId primitive.ObjectID) (entities.ChannelSummary, error) {
+	col, err := entity.collection(clientId)
+	if err != nil {
+		return entities.ChannelSummary{}, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	pipeline := mongo.Pipeline{
@@ -93,7 +113,7 @@ func (entity *deliveryLogEntity) SummarizeByEventId(eventId primitive.ObjectID) 
 			"count": bson.M{"$sum": 1},
 		}}},
 	}
-	cursor, err := entity.col.Aggregate(ctx, pipeline)
+	cursor, err := col.Aggregate(ctx, pipeline)
 	if err != nil {
 		return entities.ChannelSummary{}, err
 	}

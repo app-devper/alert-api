@@ -17,6 +17,7 @@ components:
       type: apiKey
       in: header
       name: X-Session-Token
+      description: Tenant-scoped session token in the form <clientId>.<token>, issued by the OTP verify endpoint. QR tokens and checkInId values share the same <clientId>.<value> shape so the API can route to the tenant database.
   schemas:
     Envelope:
       type: object

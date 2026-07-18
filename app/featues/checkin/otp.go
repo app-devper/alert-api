@@ -13,6 +13,7 @@ import (
 	"alert/app/data/entities"
 	"alert/app/domain"
 	"alert/app/domain/request"
+	"alert/db"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,31 +39,26 @@ func handleCreateCheckIn(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.CK_BAD_REQUEST_002, "invalid phone number")
 		return
 	}
-	clientId, _, err := alerting.SplitTenantRef(req.QrToken)
-	if err != nil {
-		errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
-		return
-	}
-	qrToken, err := repository.QrToken.GetActiveByToken(clientId, req.QrToken)
-	if err != nil {
-		errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
+	clientId, branchId, tableNo, ok := resolveCheckInTarget(ctx, repository, req)
+	if !ok {
 		return
 	}
 
 	now := time.Now()
-	sequence, err := repository.Counter.NextSequence(qrToken.ClientId, "CI", now)
+	sequence, err := repository.Counter.NextSequence(clientId, "CI", now)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
-	tableNo := req.TableNo
-	if tableNo == "" {
-		tableNo = qrToken.TableNo
+	setting, err := repository.BranchSetting.GetSetting(clientId, branchId)
+	if err != nil {
+		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
+		return
 	}
 	checkIn, err := repository.CheckIn.CreateCheckIn(entities.CheckIn{
 		CheckInNo:            alerting.FormatCheckInNo(now, sequence),
-		ClientId:             qrToken.ClientId,
-		BranchId:             qrToken.BranchId,
+		ClientId:             clientId,
+		BranchId:             branchId,
 		Phone:                phone,
 		GroupSize:            req.GroupSize,
 		TableNo:              tableNo,
@@ -77,7 +73,47 @@ func handleCreateCheckIn(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
+
+	if setting.SkipOtp {
+		sessionToken, expiresAt, activateErr := activateCheckIn(repository, checkIn, setting)
+		if activateErr != nil {
+			errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, activateErr.Error())
+			return
+		}
+		response.Ok(ctx, gin.H{
+			"skipOtp":      true,
+			"status":       "ACTIVE",
+			"sessionToken": sessionToken,
+			"expiresAt":    expiresAt,
+		})
+		return
+	}
 	sendOtp(ctx, repository, checkIn)
+}
+
+func resolveCheckInTarget(ctx *gin.Context, repository *domain.Repository, req request.CreateCheckIn) (string, string, string, bool) {
+	if req.QrToken != "" {
+		clientId, _, err := alerting.SplitTenantRef(req.QrToken)
+		if err != nil {
+			errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
+			return "", "", "", false
+		}
+		qrToken, err := repository.QrToken.GetActiveByToken(clientId, req.QrToken)
+		if err != nil {
+			errcode.Abort(ctx, http.StatusGone, errcode.CK_GONE_001, "QR code is no longer valid")
+			return "", "", "", false
+		}
+		tableNo := req.TableNo
+		if tableNo == "" {
+			tableNo = qrToken.TableNo
+		}
+		return qrToken.ClientId, qrToken.BranchId, tableNo, true
+	}
+	if err := db.ValidateClientID(req.ClientId); err != nil || req.BranchId == "" {
+		errcode.Abort(ctx, http.StatusBadRequest, errcode.CK_BAD_REQUEST_001, "clientId and branchId are required")
+		return "", "", "", false
+	}
+	return req.ClientId, req.BranchId, req.TableNo, true
 }
 
 func handleResendOtp(ctx *gin.Context, repository *domain.Repository) {
@@ -194,29 +230,36 @@ func handleVerifyOtp(ctx *gin.Context, repository *domain.Repository) {
 }
 
 func completeVerification(ctx *gin.Context, repository *domain.Repository, checkIn entities.CheckIn, otpRequest entities.OtpRequest) {
-	now := time.Now()
 	setting, err := repository.BranchSetting.GetSetting(checkIn.ClientId, checkIn.BranchId)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.OT_INTERNAL_001, err.Error())
 		return
 	}
-	rawToken, err := alerting.GenerateSessionToken()
+	sessionToken, expiresAt, err := activateCheckIn(repository, checkIn, setting)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.OT_INTERNAL_001, err.Error())
 		return
 	}
-	sessionToken := alerting.ComposeTenantRef(checkIn.ClientId, rawToken)
-	expiresAt := now.Add(time.Duration(setting.RetentionHours) * time.Hour)
-	if err := repository.CheckIn.MarkOtpVerified(checkIn.ClientId, checkIn.Id, now, alerting.HashToken(sessionToken), expiresAt); err != nil {
-		errcode.Abort(ctx, http.StatusInternalServerError, errcode.OT_INTERNAL_001, err.Error())
-		return
-	}
-	_ = repository.OtpRequest.MarkVerified(checkIn.ClientId, otpRequest.Id, now)
+	_ = repository.OtpRequest.MarkVerified(checkIn.ClientId, otpRequest.Id, time.Now())
 	response.Ok(ctx, gin.H{
 		"sessionToken": sessionToken,
 		"status":       "ACTIVE",
 		"expiresAt":    expiresAt,
 	})
+}
+
+func activateCheckIn(repository *domain.Repository, checkIn entities.CheckIn, setting entities.BranchSetting) (string, time.Time, error) {
+	now := time.Now()
+	rawToken, err := alerting.GenerateSessionToken()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	sessionToken := alerting.ComposeTenantRef(checkIn.ClientId, rawToken)
+	expiresAt := now.Add(time.Duration(setting.RetentionHours) * time.Hour)
+	if err := repository.CheckIn.MarkOtpVerified(checkIn.ClientId, checkIn.Id, now, alerting.HashToken(sessionToken), expiresAt); err != nil {
+		return "", time.Time{}, err
+	}
+	return sessionToken, expiresAt, nil
 }
 
 func otpSecret() string {

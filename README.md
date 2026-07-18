@@ -33,6 +33,12 @@ gofmt -w <file>
 **ช่องทางแจ้งเตือน:** Web Push เปิดเสมอ (default) — SMS และ LINE เป็น opt-in ต่อร้านผ่าน
 `smsEnabled`/`lineEnabled` (default ปิด เพราะมีค่าใช้จ่ายต่อข้อความ); โหมดทดสอบต้องเปิด SMS ก่อน
 
+**การลงทะเบียนลูกค้า:** ระบุสาขาได้สองทาง — (1) QR token ที่ admin สร้าง (revocable) หรือ
+(2) **ลิงก์ตรงด้วย `clientId`+`branchId`** ไม่ต้อง gen token (`GET /public/branch`,
+`POST /public/check-ins` รับ clientId/branchId แทน qrToken). **ข้ามขั้นตอน OTP** ได้ต่อสาขา
+ผ่าน branch setting `skipOtp` (default ปิด) — เมื่อเปิด ลูกค้ากรอกข้อมูล+ยอมรับ Privacy Notice
+แล้ว active ทันทีโดยไม่ต้องยืนยัน OTP (ไม่ส่ง SMS OTP, ไม่มีค่าใช้จ่าย)
+
 **SMS/LINE config ต่อ clientId:** แต่ละร้านตั้ง gateway + Sender ID + LINE OA ของตัวเองใน
 collection `messaging_configs` (tenant DB) ผ่าน `GET|PUT /admin/messaging-config`
 (GET ตอบแบบ mask, PUT เว้น secret ว่าง = คงค่าเดิม) — ค่าใดไม่ตั้งจะ fallback เป็น env

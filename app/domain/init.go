@@ -1,12 +1,14 @@
 package domain
 
 import (
+	"alert/app/core/config"
 	"alert/app/core/messaging"
 	"alert/app/data/repositories"
 	"alert/db"
 )
 
 type Repository struct {
+	Config          *config.Config
 	Session         repositories.ISession
 	CheckIn         repositories.ICheckIn
 	OtpRequest      repositories.IOtpRequest
@@ -26,10 +28,11 @@ type Repository struct {
 	SmsBalance      messaging.BalanceChecker
 }
 
-func InitRepository(resource *db.Resource) *Repository {
+func InitRepository(resource *db.Resource, cfg *config.Config) *Repository {
 	smsProvider := messaging.NewSmsProvider()
 	balanceChecker, _ := smsProvider.(messaging.BalanceChecker)
 	return &Repository{
+		Config:          cfg,
 		Session:         repositories.NewSessionEntity(resource),
 		CheckIn:         repositories.NewCheckInEntity(resource),
 		OtpRequest:      repositories.NewOtpRequestEntity(resource),

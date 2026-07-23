@@ -3,7 +3,6 @@ package checkin
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"alert/app/core/alerting"
@@ -152,7 +151,7 @@ func sendOtp(ctx *gin.Context, repository *domain.Repository, checkIn entities.C
 		ClientId:  checkIn.ClientId,
 		CheckInId: checkIn.Id,
 		Phone:     checkIn.Phone,
-		OtpHash:   alerting.HashOtp(otpSecret(), checkIn.Phone, refCode, otp),
+		OtpHash:   alerting.HashOtp(repository.Config.SecretKey, checkIn.Phone, refCode, otp),
 		RefCode:   refCode,
 		ExpiresAt: expiresAt,
 	})
@@ -219,7 +218,7 @@ func handleVerifyOtp(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusTooManyRequests, errcode.OT_TOO_MANY_001, "too many wrong attempts, request a new OTP")
 		return
 	}
-	expectedHash := alerting.HashOtp(otpSecret(), checkIn.Phone, otpRequest.RefCode, req.Otp)
+	expectedHash := alerting.HashOtp(repository.Config.SecretKey, checkIn.Phone, otpRequest.RefCode, req.Otp)
 	if expectedHash != otpRequest.OtpHash {
 		attempts, _ := repository.OtpRequest.IncrementAttempt(checkIn.ClientId, otpRequest.Id)
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.OT_BAD_REQUEST_002,
@@ -260,8 +259,4 @@ func activateCheckIn(repository *domain.Repository, checkIn entities.CheckIn, se
 		return "", time.Time{}, err
 	}
 	return sessionToken, expiresAt, nil
-}
-
-func otpSecret() string {
-	return os.Getenv("SECRET_KEY")
 }

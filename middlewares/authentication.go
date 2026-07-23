@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
+	"alert/app/core/config"
 	"alert/app/core/constant"
 	"alert/app/core/errcode"
 	"alert/app/data/repositories"
@@ -24,20 +24,9 @@ type AccessClaims struct {
 	jwt.RegisteredClaims
 }
 
-type authConfig struct {
-	jwtKey   []byte
-	clientId string
-	system   string
-}
-
-func RequireAuthenticated() gin.HandlerFunc {
-	config, configErr := loadAuthConfig()
+func RequireAuthenticated(cfg *config.Config) gin.HandlerFunc {
+	jwtKey := []byte(cfg.SecretKey)
 	return func(ctx *gin.Context) {
-		if configErr != nil {
-			errcode.Abort(ctx, http.StatusInternalServerError, errcode.SY_INTERNAL_001, configErr.Error())
-			return
-		}
-
 		token := ctx.GetHeader("Authorization")
 		if token == "" {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_001, "missing authorization header")
@@ -53,7 +42,7 @@ func RequireAuthenticated() gin.HandlerFunc {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
-			return config.jwtKey, nil
+			return jwtKey, nil
 		})
 		if err != nil {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_002, err.Error())
@@ -63,7 +52,7 @@ func RequireAuthenticated() gin.HandlerFunc {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_002, "token invalid")
 			return
 		}
-		if config.system != claims.System {
+		if cfg.System != claims.System {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_003, "system invalid")
 			return
 		}
@@ -71,7 +60,7 @@ func RequireAuthenticated() gin.HandlerFunc {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_004, "clientId invalid")
 			return
 		}
-		if config.clientId != "" && config.clientId != claims.ClientId {
+		if cfg.ClientId != "" && cfg.ClientId != claims.ClientId {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_004, "clientId invalid")
 			return
 		}
@@ -127,26 +116,6 @@ func fallbackBranch(ctx *gin.Context) string {
 		return branchId
 	}
 	return "HQ"
-}
-
-func loadAuthConfig() (*authConfig, error) {
-	secretKey := os.Getenv("SECRET_KEY")
-	if secretKey == "" {
-		return nil, errors.New("missing required env: SECRET_KEY")
-	}
-
-	clientId := os.Getenv("CLIENT_ID")
-
-	system := os.Getenv("SYSTEM")
-	if system == "" {
-		return nil, errors.New("missing required env: SYSTEM")
-	}
-
-	return &authConfig{
-		jwtKey:   []byte(secretKey),
-		clientId: clientId,
-		system:   system,
-	}, nil
 }
 
 func AllowedEventTypes(ctx *gin.Context) []string {

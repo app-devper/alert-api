@@ -19,10 +19,8 @@ gofmt -w <file>
 
 | Var | ความหมาย |
 |---|---|
-| `PORT`, `MONGO_HOST`, `REDIS_HOST` | โครงสร้างพื้นฐาน |
-| `MONGO_DB_PREFIX` | prefix ของ DB ต่อ tenant (default `alert`) — clientId `000` ใช้ชื่อ prefix ตรง ๆ, อื่น ๆ เป็น `<prefix>_<clientId>` |
-| `SECRET_KEY` | ต้องตรงกับ um-api (JWT HS256 + ใช้ hash OTP) |
-| `SYSTEM` | ตรวจ claim ของ token พนักงาน |
+| `PORT`, `MONGO_HOST`, `REDIS_HOST`, `SECRET_KEY`, `SYSTEM` | **จำเป็น** — `app/core/config.MustLoad()` ตรวจตอน startup ทันที ขาดตัวใดตัวหนึ่ง process จะไม่ขึ้น (log.Fatal); startup ยัง ping ทั้ง Mongo และ Redis ก่อนรับ traffic; `SECRET_KEY` ต้องตรงกับ um-api (JWT HS256 + ใช้ hash OTP), `SYSTEM` ตรวจ claim ของ token พนักงาน |
+| `MONGO_DB_PREFIX` | (ไม่บังคับ) prefix ของ DB ต่อ tenant (default `alert`) — clientId `000` ใช้ชื่อ prefix ตรง ๆ, อื่น ๆ เป็น `<prefix>_<clientId>` |
 | `CLIENT_ID` | (ไม่บังคับ) ถ้าตั้งค่า จะล็อก deployment ให้รับเฉพาะ tenant นั้น; เว้นว่าง = multi-tenant รับทุก clientId จาก JWT |
 | `CHECKIN_BASE_URL` | URL หน้าเช็กอินที่ฝังใน QR |
 | `SMS_API_URL`, `SMS_BALANCE_URL`, `SMS_API_KEY`, `SMS_API_SECRET`, `SMS_SENDER_ID` | **ค่า default/fallback** ของ Bulk SMS Gateway — ตั้งจริงต่อร้านผ่าน `PUT /admin/messaging-config` |

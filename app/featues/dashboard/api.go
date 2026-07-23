@@ -20,7 +20,7 @@ import (
 
 func ApplyDashboardAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	r := route.Group("dashboard",
-		middlewares.RequireAuthenticated(),
+		middlewares.RequireAuthenticated(repository.Config),
 		middlewares.RequireSession(repository.Session),
 		middlewares.RequireBranch(repository.StaffPermission),
 		middlewares.RequireAuthorization(constant.SUPER, constant.ADMIN, constant.MANAGER, constant.STAFF),

@@ -2,8 +2,8 @@ package app
 
 import (
 	"net/http"
-	"os"
 
+	"alert/app/core/config"
 	"alert/app/core/response"
 	"alert/app/domain"
 	"alert/app/featues/admin"
@@ -21,6 +21,8 @@ import (
 type Routes struct{}
 
 func (app Routes) StartGin() {
+	cfg := config.MustLoad()
+
 	r := gin.New()
 
 	err := r.SetTrustedProxies(nil)
@@ -32,14 +34,23 @@ func (app Routes) StartGin() {
 	r.Use(middlewares.NewRecovery())
 	r.Use(middlewares.NewCors([]string{"*"}))
 
-	resource, err := db.InitResource(domain.TemplateSeeder())
+	resource, err := db.InitResource(cfg, domain.TemplateSeeder())
 	if err != nil {
 		logrus.Fatal("failed to init database: ", err)
 	}
 	defer resource.Close()
 
-	repository := domain.InitRepository(resource)
+	repository := domain.InitRepository(resource, cfg)
 
+	RegisterRoutes(r, repository)
+
+	err = r.Run(":" + cfg.Port)
+	if err != nil {
+		logrus.Error(err)
+	}
+}
+
+func RegisterRoutes(r *gin.Engine, repository *domain.Repository) {
 	r.GET("/health", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
@@ -56,9 +67,4 @@ func (app Routes) StartGin() {
 	webhook.ApplyWebhookAPI(publicRoute, repository)
 
 	r.NoRoute(middlewares.NoRoute())
-
-	err = r.Run(":" + os.Getenv("PORT"))
-	if err != nil {
-		logrus.Error(err)
-	}
 }

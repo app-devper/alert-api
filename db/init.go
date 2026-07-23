@@ -2,19 +2,16 @@ package db
 
 import (
 	"context"
-	"log"
-	"os"
 	"time"
 
+	"alert/app/core/config"
+
 	"github.com/go-redis/redis/v8"
-	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
-
-const defaultDbPrefix = "alert"
 
 type Resource struct {
 	Mongo       *Manager
@@ -38,18 +35,8 @@ func (r *Resource) Close() {
 	}
 }
 
-func InitResource(seeder Seeder) (*Resource, error) {
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Print(err)
-	}
-
-	host := os.Getenv("MONGO_HOST")
-	dbPrefix := os.Getenv("MONGO_DB_PREFIX")
-	if dbPrefix == "" {
-		dbPrefix = defaultDbPrefix
-	}
-	mongoClient, err := mongo.NewClient(options.Client().ApplyURI(host))
+func InitResource(cfg *config.Config, seeder Seeder) (*Resource, error) {
+	mongoClient, err := mongo.NewClient(options.Client().ApplyURI(cfg.MongoHost))
 	if err != nil {
 		return nil, err
 	}
@@ -63,15 +50,17 @@ func InitResource(seeder Seeder) (*Resource, error) {
 		return nil, err
 	}
 
-	redisHost := os.Getenv("REDIS_HOST")
-	redisOp, err := redis.ParseURL(redisHost)
+	redisOp, err := redis.ParseURL(cfg.RedisHost)
 	if err != nil {
 		return nil, err
 	}
 	rdb := redis.NewClient(redisOp)
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		return nil, err
+	}
 
 	return &Resource{
-		Mongo:       NewManager(mongoClient, dbPrefix, seeder),
+		Mongo:       NewManager(mongoClient, cfg.DbPrefix, seeder),
 		RdDb:        rdb,
 		mongoClient: mongoClient,
 	}, nil

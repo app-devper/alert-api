@@ -14,8 +14,10 @@ import (
 )
 
 type Resource struct {
-	Mongo       *Manager
-	RdDb        *redis.Client
+	Mongo *Manager
+	RdDb  *redis.Client
+	// RedisHost is the REDIS_HOST URL; UM's sessions live in the same Redis.
+	RedisHost   string
 	mongoClient *mongo.Client
 }
 
@@ -62,6 +64,7 @@ func InitResource(cfg *config.Config, seeder Seeder) (*Resource, error) {
 	return &Resource{
 		Mongo:       NewManager(mongoClient, cfg.DbPrefix, seeder),
 		RdDb:        rdb,
+		RedisHost:   cfg.RedisHost,
 		mongoClient: mongoClient,
 	}, nil
 }

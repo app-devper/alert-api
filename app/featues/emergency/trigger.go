@@ -149,20 +149,19 @@ func verifyPin(ctx *gin.Context, repository *domain.Repository, setting entities
 		return false
 	}
 	lockKey := fmt.Sprintf("pinlock:%s:%s", setting.ClientId, setting.BranchId)
-	attempts, _ := repository.RateLimit.Get(lockKey)
-	if attempts >= constant.PinMaxAttempts {
+	if pinLocks.Attempts(repository.RateLimit, lockKey) >= constant.PinMaxAttempts {
 		errcode.Abort(ctx, http.StatusLocked, errcode.EM_LOCKED_001, "PIN locked, try again later")
 		return false
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(setting.PinHash), []byte(pin)); err != nil {
-		count, _ := repository.RateLimit.Increment(lockKey, time.Duration(constant.PinLockMinutes)*time.Minute)
+		count := pinLocks.Fail(repository.RateLimit, lockKey, time.Duration(constant.PinLockMinutes)*time.Minute)
 		if count >= constant.PinMaxAttempts {
 			notifyPinLocked(repository, setting, ctx.GetString("UserId"))
 		}
 		errcode.Abort(ctx, http.StatusForbidden, errcode.EM_FORBIDDEN_002, "invalid PIN")
 		return false
 	}
-	_ = repository.RateLimit.Reset(lockKey)
+	pinLocks.Reset(repository.RateLimit, lockKey)
 	return true
 }
 

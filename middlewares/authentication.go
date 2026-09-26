@@ -12,6 +12,7 @@ import (
 	"alert/app/data/repositories"
 	"alert/db"
 
+	"github.com/app-devper/um-api/sessionclient"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -75,8 +76,12 @@ func RequireAuthenticated(cfg *config.Config) gin.HandlerFunc {
 
 func RequireSession(sessionEntity repositories.ISession) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		sessionId := ctx.GetString("SessionId")
-		userId, err := sessionEntity.GetSessionById(sessionId)
+		userId, err := sessionEntity.Authorize(ctx.Request.Context(),
+			ctx.GetString("SessionId"), ctx.GetString("System"), ctx.Request.Method)
+		if errors.Is(err, sessionclient.ErrUnavailable) {
+			errcode.Abort(ctx, http.StatusServiceUnavailable, errcode.AU_UNAVAILABLE_001, "identity service unavailable")
+			return
+		}
 		if err != nil {
 			errcode.Abort(ctx, http.StatusUnauthorized, errcode.AU_UNAUTHORIZED_005, "session invalid")
 			return

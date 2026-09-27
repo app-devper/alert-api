@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http"
+	"os"
 
 	"alert/app/core/config"
 	"alert/app/core/response"
@@ -32,6 +33,7 @@ func (app Routes) StartGin() {
 
 	r.Use(gin.Logger())
 	r.Use(middlewares.NewRecovery())
+	r.Use(middlewares.NewGatewayHost(os.Getenv("GATEWAY_HOSTS")))
 	r.Use(middlewares.NewCors([]string{"*"}))
 
 	resource, err := db.InitResource(cfg, domain.TemplateSeeder())

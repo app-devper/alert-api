@@ -20,7 +20,7 @@ func ApplyEmergencyAPI(route *gin.RouterGroup, repository *domain.Repository) {
 		middlewares.RequireAuthenticated(repository.Config),
 		middlewares.RequireSession(repository.Session),
 		middlewares.RequireBranch(repository.StaffPermission),
-		middlewares.RequireAuthorization(constant.SUPER, constant.ADMIN, constant.MANAGER, constant.STAFF),
+		middlewares.RequireAuthorization(constant.MemberRoles...),
 	)
 
 	r.GET("/preview", func(ctx *gin.Context) {

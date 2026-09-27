@@ -1,11 +1,16 @@
 package constant
 
+// UM roles, lowest to highest: USER < MANAGER < ADMIN < SUPER.
 const (
 	SUPER   = "SUPER"
 	ADMIN   = "ADMIN"
 	MANAGER = "MANAGER"
-	STAFF   = "STAFF"
+	USER    = "USER"
 )
+
+// MemberRoles are every UM role; any signed-in member may raise an emergency
+// and use the dashboard.
+var MemberRoles = []string{SUPER, ADMIN, MANAGER, USER}
 
 const (
 	EventFire             = "FIRE"

@@ -14,6 +14,7 @@ import (
 	"alert/app/domain"
 	"alert/app/domain/request"
 
+	"github.com/app-devper/um-api/sessionclient"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"golang.org/x/crypto/bcrypt"
@@ -73,7 +74,7 @@ func handleRealAlert(ctx *gin.Context, repository *domain.Repository, req reques
 
 func handleTestAlert(ctx *gin.Context, repository *domain.Repository, req request.TriggerAlert) {
 	role := ctx.GetString("Role")
-	if role != constant.SUPER && role != constant.ADMIN && role != constant.MANAGER {
+	if !sessionclient.Role(role).AtLeast(sessionclient.RoleManager) {
 		errcode.Abort(ctx, http.StatusForbidden, errcode.EM_FORBIDDEN_002, "test mode requires MANAGER or above")
 		return
 	}
@@ -193,7 +194,7 @@ func passCooldown(ctx *gin.Context, repository *domain.Repository, req request.T
 		return true
 	}
 	role := ctx.GetString("Role")
-	canOverride := role == constant.SUPER || role == constant.ADMIN || role == constant.MANAGER
+	canOverride := sessionclient.Role(role).AtLeast(sessionclient.RoleManager)
 	if req.OverrideCooldown && canOverride {
 		repository.AuditLog.Record(entities.AuditLog{
 			ClientId: clientId, BranchId: branchId,

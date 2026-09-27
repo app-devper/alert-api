@@ -8,10 +8,6 @@ const (
 	USER    = "USER"
 )
 
-// MemberRoles are every UM role; any signed-in member may raise an emergency
-// and use the dashboard.
-var MemberRoles = []string{SUPER, ADMIN, MANAGER, USER}
-
 const (
 	EventFire             = "FIRE"
 	EventEvacuate         = "EVACUATE"

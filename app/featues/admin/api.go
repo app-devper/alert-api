@@ -3,21 +3,21 @@ package admin
 import (
 	"net/http"
 
-	"alert/app/core/constant"
 	"alert/app/core/errcode"
 	"alert/app/core/response"
 	"alert/app/domain"
 	"alert/middlewares"
 
+	"github.com/app-devper/um-api/sessionclient"
 	"github.com/gin-gonic/gin"
 )
 
 func ApplyAdminAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	r := route.Group("admin",
-		middlewares.RequireAuthenticated(repository.Config),
-		middlewares.RequireSession(repository.Session),
+		middlewares.RequireSession(repository.Auth),
+		middlewares.RequireTenant(),
 		middlewares.RequireBranch(repository.StaffPermission),
-		middlewares.RequireAuthorization(constant.SUPER, constant.ADMIN),
+		repository.Auth.AtLeast(sessionclient.RoleAdmin),
 	)
 
 	r.GET("/templates", func(ctx *gin.Context) {

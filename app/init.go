@@ -43,6 +43,10 @@ func (app Routes) StartGin() {
 	defer resource.Close()
 
 	repository := domain.InitRepository(resource, cfg)
+	repository.Auth, err = middlewares.NewAuth(cfg)
+	if err != nil {
+		logrus.Fatal("UM token verification: ", err)
+	}
 
 	RegisterRoutes(r, repository)
 

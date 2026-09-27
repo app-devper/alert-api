@@ -13,6 +13,7 @@ import (
 	"alert/app/domain"
 	"alert/middlewares"
 
+	"github.com/app-devper/um-api/sessionclient"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -20,10 +21,10 @@ import (
 
 func ApplyDashboardAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	r := route.Group("dashboard",
-		middlewares.RequireAuthenticated(repository.Config),
-		middlewares.RequireSession(repository.Session),
+		middlewares.RequireSession(repository.Auth),
+		middlewares.RequireTenant(),
 		middlewares.RequireBranch(repository.StaffPermission),
-		middlewares.RequireAuthorization(constant.MemberRoles...),
+		repository.Auth.AtLeast(sessionclient.RoleUser),
 	)
 
 	r.GET("/summary", func(ctx *gin.Context) {
@@ -38,7 +39,7 @@ func ApplyDashboardAPI(route *gin.RouterGroup, repository *domain.Repository) {
 		handleStaffCheckout(ctx, repository)
 	})
 
-	manager := r.Group("", middlewares.RequireAuthorization(constant.SUPER, constant.ADMIN, constant.MANAGER))
+	manager := r.Group("", repository.Auth.AtLeast(sessionclient.RoleManager))
 
 	manager.GET("/events", func(ctx *gin.Context) {
 		handleEventHistory(ctx, repository)

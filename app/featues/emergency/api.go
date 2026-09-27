@@ -12,15 +12,16 @@ import (
 	"alert/app/domain/request"
 	"alert/middlewares"
 
+	"github.com/app-devper/um-api/sessionclient"
 	"github.com/gin-gonic/gin"
 )
 
 func ApplyEmergencyAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	r := route.Group("emergency",
-		middlewares.RequireAuthenticated(repository.Config),
-		middlewares.RequireSession(repository.Session),
+		middlewares.RequireSession(repository.Auth),
+		middlewares.RequireTenant(),
 		middlewares.RequireBranch(repository.StaffPermission),
-		middlewares.RequireAuthorization(constant.MemberRoles...),
+		repository.Auth.AtLeast(sessionclient.RoleUser),
 	)
 
 	r.GET("/preview", func(ctx *gin.Context) {

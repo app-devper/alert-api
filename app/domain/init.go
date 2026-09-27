@@ -5,11 +5,13 @@ import (
 	"alert/app/core/messaging"
 	"alert/app/data/repositories"
 	"alert/db"
+	"github.com/app-devper/um-api/sessionclient/ginauth"
 )
 
 type Repository struct {
-	Config          *config.Config
-	Session         repositories.ISession
+	Config *config.Config
+	// Auth verifies UM tokens and sessions; set by the app at startup.
+	Auth            *ginauth.Auth
 	CheckIn         repositories.ICheckIn
 	OtpRequest      repositories.IOtpRequest
 	EmergencyEvent  repositories.IEmergencyEvent
@@ -33,7 +35,6 @@ func InitRepository(resource *db.Resource, cfg *config.Config) *Repository {
 	balanceChecker, _ := smsProvider.(messaging.BalanceChecker)
 	return &Repository{
 		Config:          cfg,
-		Session:         repositories.NewSessionEntity(resource),
 		CheckIn:         repositories.NewCheckInEntity(resource),
 		OtpRequest:      repositories.NewOtpRequestEntity(resource),
 		EmergencyEvent:  repositories.NewEmergencyEventEntity(resource),

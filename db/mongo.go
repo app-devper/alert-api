@@ -2,71 +2,47 @@ package db
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"regexp"
-	"sync"
-	"time"
 
+	"github.com/app-devper/um-api/servicekit/tenant"
 	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-var validClientID = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9_-]{0,48}[a-zA-Z0-9])?$`)
-
+// Seeder prepares a tenant's database beyond its indexes.
 type Seeder func(ctx context.Context, clientId string, database *mongo.Database) error
 
-type tenantDB struct {
-	db       *mongo.Database
-	initOnce sync.Once
-}
-
+// Manager keeps one database per tenant through servicekit/tenant (um-api
+// ADR-0007): <prefix>_<clientId>, created with its indexes and seed data on
+// first use, and retried later if that fails.
 type Manager struct {
-	client   *mongo.Client
-	dbPrefix string
-	seeder   Seeder
-	cache    sync.Map
+	tenants *tenant.Registry[*mongo.Database]
 }
 
 func NewManager(client *mongo.Client, dbPrefix string, seeder Seeder) *Manager {
-	return &Manager{
-		client:   client,
-		dbPrefix: dbPrefix,
-		seeder:   seeder,
+	open := func(name string) *mongo.Database { return client.Database(name) }
+	initialise := func(ctx context.Context, clientID string, database *mongo.Database) error {
+		if err := createTenantIndexes(ctx, database); err != nil {
+			return err
+		}
+		if seeder != nil {
+			if err := seeder(ctx, clientID, database); err != nil {
+				return err
+			}
+		}
+		logrus.Infof("Opened database %q for client %q", database.Name(), clientID)
+		return nil
 	}
+	return &Manager{tenants: tenant.New(dbPrefix, open, initialise)}
 }
 
-func ValidateClientID(clientID string) error {
-	if clientID == "" {
-		return errors.New("clientId is required")
-	}
-	if !validClientID.MatchString(clientID) {
-		return fmt.Errorf("invalid clientId %q", clientID)
-	}
-	return nil
-}
+// ValidateClientID refuses an empty or malformed client id.
+func ValidateClientID(clientID string) error { return tenant.ValidateClientID(clientID) }
 
-func DbNameFor(dbPrefix string, clientID string) string {
-	if clientID == "000" {
-		return dbPrefix
-	}
-	return fmt.Sprintf("%s_%s", dbPrefix, clientID)
-}
+// DbNameFor is the tenant's database name.
+func DbNameFor(dbPrefix string, clientID string) string { return tenant.DatabaseName(dbPrefix, clientID) }
 
 func (m *Manager) ForClient(clientID string) (*mongo.Database, error) {
-	if err := ValidateClientID(clientID); err != nil {
-		return nil, err
-	}
-	if v, ok := m.cache.Load(clientID); ok {
-		entry := v.(*tenantDB)
-		m.ensureInitialized(entry, clientID)
-		return entry.db, nil
-	}
-	entry := &tenantDB{db: m.client.Database(DbNameFor(m.dbPrefix, clientID))}
-	actual, _ := m.cache.LoadOrStore(clientID, entry)
-	entry = actual.(*tenantDB)
-	m.ensureInitialized(entry, clientID)
-	return entry.db, nil
+	return m.tenants.For(clientID)
 }
 
 func (m *Manager) CollectionFor(clientID string, name string) (*mongo.Collection, error) {
@@ -77,30 +53,8 @@ func (m *Manager) CollectionFor(clientID string, name string) (*mongo.Collection
 	return database.Collection(name), nil
 }
 
-func (m *Manager) KnownClients() []string {
-	clients := []string{}
-	m.cache.Range(func(key, _ interface{}) bool {
-		clients = append(clients, key.(string))
-		return true
-	})
-	return clients
-}
-
-func (m *Manager) ensureInitialized(entry *tenantDB, clientID string) {
-	entry.initOnce.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := createTenantIndexes(ctx, entry.db); err != nil {
-			logrus.Warnf("tenant %q: index creation reported error (continuing): %v", clientID, err)
-		}
-		if m.seeder != nil {
-			if err := m.seeder(ctx, clientID, entry.db); err != nil {
-				logrus.Warnf("tenant %q: seeder reported error (continuing): %v", clientID, err)
-			}
-		}
-		logrus.Infof("Opened database %q for client %q", entry.db.Name(), clientID)
-	})
-}
+// KnownClients lists the tenants this process has opened.
+func (m *Manager) KnownClients() []string { return m.tenants.Known() }
 
 const (
 	CollectionCheckIns         = "check_ins"

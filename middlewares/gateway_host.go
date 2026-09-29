@@ -2,26 +2,20 @@ package middlewares
 
 import (
 	"net/http"
-	"strings"
 
+	"alert/app/core/errcode"
+
+	"github.com/app-devper/um-api/servicekit/gateway"
 	"github.com/gin-gonic/gin"
 )
 
+// NewGatewayHost refuses requests that did not come through the gateway
+// (um-api servicekit, its ADR-0007), in this service's error envelope.
 func NewGatewayHost(allowedHosts string) gin.HandlerFunc {
-	allowed := map[string]bool{}
-	for _, host := range strings.Split(allowedHosts, ",") {
-		host = strings.ToLower(strings.TrimSpace(host))
-		if host != "" {
-			allowed[host] = true
-		}
-	}
-	if len(allowed) == 0 {
-		return func(c *gin.Context) { c.Next() }
-	}
+	hosts := gateway.ParseHosts(allowedHosts)
 	return func(c *gin.Context) {
-		forwarded := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Host"), ",")[0])
-		if !allowed[strings.ToLower(forwarded)] {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "direct access is not allowed"})
+		if !hosts.Allows(c.Request) {
+			errcode.Abort(c, http.StatusForbidden, errcode.SY_FORBIDDEN_001, gateway.Message)
 			return
 		}
 		c.Next()

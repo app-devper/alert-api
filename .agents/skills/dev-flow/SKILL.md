@@ -10,6 +10,16 @@ exit check that must hold before moving on. Skip a stage only where it says
 so. Branching and PR mechanics are owned by `git-flow` and `pr`; this skill
 only sequences them.
 
+Skills named below live in two places. `.agents/skills/` in this repo holds
+the ones about this repo: `dev-flow`, `git-flow`, `pr`. The generic ones —
+`api-design`, `codebase-design`, `coding-standards`, `domain-modeling`,
+`error-handling`, `golang-patterns`, `golang-testing`, `grill-with-docs`,
+`grilling`, `improve-codebase-architecture`, `redis-patterns`,
+`security-review`, `tdd-workflow` — come from `app-devper/agent-skills`,
+linked into `~/.claude/skills` by its `install.sh`. If a generic skill is
+missing, clone that repo and run the script; never recreate one inside this
+repo, because a same-named copy would be shadowed.
+
 ## 0. Pick the track
 
 | Track | Starts at | Branch from → PR into |
@@ -23,7 +33,8 @@ only sequences them.
 ## 1. Shape — agree on what and why
 
 - New behaviour or unclear requirement → `/grill-with-docs` (runs `grilling`
-  + `domain-modeling`). Terms go into `CONTEXT.md`, hard-to-reverse decisions
+  + `domain-modeling`; the user starts it — when you drive the flow
+  yourself, load `grilling` and then `domain-modeling`). Terms go into `CONTEXT.md`, hard-to-reverse decisions
   into `docs/adr/`.
 - Small, well-understood fix → `grilling` only, a few questions, no docs.
 - Refactor → `/improve-codebase-architecture` picks the candidate and grills it.

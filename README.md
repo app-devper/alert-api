@@ -86,3 +86,11 @@ Workspace-standard Go layering: handlers ใน `app/featues/<domain>/`, DTOs �
 - `GET|POST|PUT /admin/templates|settings|permissions|qr[...]`, `GET /admin/sms-credit` (ADMIN)
 - `POST /webhook/sms` — delivery report (HMAC signature), `POST /webhook/line` — LON delivery completion (X-Line-Signature)
 - `GET /health`
+
+## Agent skills
+
+The generic Claude Code / Codex skills (`coding-standards`, `tdd-workflow`,
+`grilling`, …) and the `ecc` rules are not in this repo. Every app-devper
+repo shares them from [app-devper/agent-skills](https://github.com/app-devper/agent-skills):
+clone it and run its `install.sh` once per machine. Only the skills about this
+repo live in `.claude/skills/`: `dev-flow`, `git-flow`, `pr`.

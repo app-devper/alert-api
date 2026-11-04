@@ -20,6 +20,27 @@ func ApplyAdminAPI(route *gin.RouterGroup, repository *domain.Repository) {
 		repository.Auth.AtLeast(sessionclient.RoleAdmin),
 	)
 
+	// Permissions are Client-scoped: granting the first Alert Permission of a
+	// Client must not itself require one, so RequireBranch is left off.
+	clientScoped := route.Group("admin",
+		middlewares.RequireSession(repository.Auth),
+		middlewares.RequireTenant(),
+		repository.Auth.AtLeast(sessionclient.RoleAdmin),
+	)
+
+	clientScoped.GET("/permissions", func(ctx *gin.Context) {
+		permissions, err := repository.StaffPermission.GetPermissions(ctx.GetString("ClientId"))
+		if err != nil {
+			errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
+			return
+		}
+		response.Ok(ctx, permissions)
+	})
+
+	clientScoped.PUT("/permissions", func(ctx *gin.Context) {
+		handleUpsertPermission(ctx, repository)
+	})
+
 	r.GET("/templates", func(ctx *gin.Context) {
 		templates, err := repository.MessageTemplate.GetTemplates(ctx.GetString("ClientId"))
 		if err != nil {
@@ -52,19 +73,6 @@ func ApplyAdminAPI(route *gin.RouterGroup, repository *domain.Repository) {
 
 	r.PUT("/settings/pin", func(ctx *gin.Context) {
 		handleSetPin(ctx, repository)
-	})
-
-	r.GET("/permissions", func(ctx *gin.Context) {
-		permissions, err := repository.StaffPermission.GetPermissions(ctx.GetString("ClientId"))
-		if err != nil {
-			errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
-			return
-		}
-		response.Ok(ctx, permissions)
-	})
-
-	r.PUT("/permissions", func(ctx *gin.Context) {
-		handleUpsertPermission(ctx, repository)
 	})
 
 	r.GET("/qr", func(ctx *gin.Context) {

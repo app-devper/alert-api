@@ -186,6 +186,10 @@ func handleUpsertPermission(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_001, err.Error())
 		return
 	}
+	if req.BranchId == "" {
+		errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_002, "branchId required")
+		return
+	}
 	for _, eventType := range req.AllowedEventTypes {
 		if !constant.IsValidEventType(eventType) {
 			errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_002, "invalid event type: "+eventType)

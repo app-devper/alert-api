@@ -12,6 +12,7 @@ import (
 	"github.com/app-devper/um-api/sessionclient"
 	"github.com/app-devper/um-api/sessionclient/ginauth"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -72,6 +73,7 @@ func RequireBranch(permissionEntity repositories.IStaffPermission) gin.HandlerFu
 			return
 		}
 		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"clientId": clientId, "userId": userId}).Warn("alert permission lookup failed")
 			errcode.Abort(ctx, http.StatusServiceUnavailable, errcode.AU_UNAVAILABLE_002, "permission store unavailable")
 			return
 		}

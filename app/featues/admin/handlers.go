@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"alert/app/core/alerting"
@@ -186,7 +187,8 @@ func handleUpsertPermission(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_001, err.Error())
 		return
 	}
-	if req.BranchId == "" {
+	branchId := strings.TrimSpace(req.BranchId)
+	if branchId == "" {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_002, "branchId required")
 		return
 	}
@@ -208,7 +210,7 @@ func handleUpsertPermission(ctx *gin.Context, repository *domain.Repository) {
 	permission := entities.StaffPermission{
 		ClientId:          ctx.GetString("ClientId"),
 		UserId:            req.UserId,
-		BranchId:          req.BranchId,
+		BranchId:          branchId,
 		Phone:             phone,
 		AllowedEventTypes: req.AllowedEventTypes,
 		IsTestRecipient:   req.IsTestRecipient,
@@ -219,7 +221,7 @@ func handleUpsertPermission(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
 		return
 	}
-	auditAdmin(ctx, repository, constant.ActionUpdatePermission, bson.M{"targetUserId": req.UserId})
+	auditAdmin(ctx, repository, constant.ActionUpdatePermission, bson.M{"targetUserId": req.UserId, "branchId": branchId, "active": req.Active})
 	response.Ok(ctx, gin.H{"updated": true})
 }
 

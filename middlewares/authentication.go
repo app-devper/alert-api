@@ -67,18 +67,20 @@ func RequireBranch(permissionEntity repositories.IStaffPermission) gin.HandlerFu
 		clientId := ctx.GetString("ClientId")
 		userId := ctx.GetString("UserId")
 		permission, err := permissionEntity.GetByUserId(clientId, userId)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_002, "no Alert Permission")
+			return
+		}
 		if err != nil {
-			if !errors.Is(err, mongo.ErrNoDocuments) {
-				errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_001, "permission lookup failed")
-				return
-			}
-			ctx.Set("BranchId", fallbackBranch)
-			ctx.Set("AllowedEventTypes", []string{})
-			ctx.Next()
+			errcode.Abort(ctx, http.StatusServiceUnavailable, errcode.AU_UNAVAILABLE_002, "permission store unavailable")
 			return
 		}
 		if !permission.Active {
 			errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_001, "staff permission inactive")
+			return
+		}
+		if permission.BranchId == "" {
+			errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_002, "no Alert Permission")
 			return
 		}
 		ctx.Set("BranchId", permission.BranchId)
@@ -86,10 +88,6 @@ func RequireBranch(permissionEntity repositories.IStaffPermission) gin.HandlerFu
 		ctx.Next()
 	}
 }
-
-// fallbackBranch is the Branch of a caller who holds no Alert Permission.
-// It never comes from the request: a caller may not choose their own scope.
-const fallbackBranch = "HQ"
 
 func AllowedEventTypes(ctx *gin.Context) []string {
 	value, exists := ctx.Get("AllowedEventTypes")

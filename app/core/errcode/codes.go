@@ -7,7 +7,9 @@ const (
 	AU_UNAUTHORIZED_004 = "AU-401-004"
 	AU_UNAUTHORIZED_005 = "AU-401-005"
 	AU_FORBIDDEN_001    = "AU-403-001"
+	AU_FORBIDDEN_002    = "AU-403-002" // no Alert Permission
 	AU_UNAVAILABLE_001  = "AU-503-001" // UM session store unavailable; retry, do not sign out
+	AU_UNAVAILABLE_002  = "AU-503-002" // permission store unavailable
 )
 
 const (

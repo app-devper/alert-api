@@ -67,7 +67,7 @@ One physical location of a Client with its own settings: shop name, Retention, C
 _Avoid_: Store, location, site, tenant
 
 **Alert Permission**:
-What one staff member may trigger at a Branch: the Event Types they are allowed to send and whether they receive test alerts. Granted per Client on top of the UM Role.
+What one staff member may trigger at a Branch: the Event Types they are allowed to send and whether they receive test alerts. Granted per Client on top of the UM Role. A staff member without one may call no Branch-scoped route (admin, emergency, dashboard): there is no default Branch. The first Permission of a Client is granted by an admin through `PUT /admin/permissions`, which is Client-scoped.
 _Avoid_: Staff permission, role (the UM word), ACL
 
 **Messaging Config**:

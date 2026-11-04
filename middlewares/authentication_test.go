@@ -68,6 +68,28 @@ func TestRequireBranchFallsBackToHQOnlyWhenPermissionNotFound(t *testing.T) {
 	}
 }
 
+func TestRequireBranchIgnoresBranchHeaderWhenPermissionNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	permissionRepo := &staffPermissionRepoStub{
+		getByUserIdFn: func(clientId string, userId string) (entities.StaffPermission, error) {
+			return entities.StaffPermission{}, mongo.ErrNoDocuments
+		},
+	}
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx.Request.Header.Set("X-Branch-Id", "BRANCH-OTHER")
+	ctx.Set("UserId", "user-1")
+	ctx.Set("ClientId", "001")
+
+	RequireBranch(permissionRepo)(ctx)
+
+	if got := ctx.GetString("BranchId"); got != "HQ" {
+		t.Fatalf("expected the caller's header to be ignored and HQ used, got %q", got)
+	}
+}
+
 func TestRequireBranchAbortsOnLookupErrorWithoutFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	permissionRepo := &staffPermissionRepoStub{

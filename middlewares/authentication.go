@@ -72,7 +72,7 @@ func RequireBranch(permissionEntity repositories.IStaffPermission) gin.HandlerFu
 				errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_001, "permission lookup failed")
 				return
 			}
-			ctx.Set("BranchId", fallbackBranch(ctx))
+			ctx.Set("BranchId", fallbackBranch)
 			ctx.Set("AllowedEventTypes", []string{})
 			ctx.Next()
 			return
@@ -87,12 +87,9 @@ func RequireBranch(permissionEntity repositories.IStaffPermission) gin.HandlerFu
 	}
 }
 
-func fallbackBranch(ctx *gin.Context) string {
-	if branchId := ctx.GetHeader("X-Branch-Id"); branchId != "" {
-		return branchId
-	}
-	return "HQ"
-}
+// fallbackBranch is the Branch of a caller who holds no Alert Permission.
+// It never comes from the request: a caller may not choose their own scope.
+const fallbackBranch = "HQ"
 
 func AllowedEventTypes(ctx *gin.Context) []string {
 	value, exists := ctx.Get("AllowedEventTypes")

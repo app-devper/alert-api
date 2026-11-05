@@ -12,6 +12,7 @@ import (
 	"github.com/app-devper/um-api/sessionclient"
 	"github.com/app-devper/um-api/sessionclient/ginauth"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -67,31 +68,27 @@ func RequireBranch(permissionEntity repositories.IStaffPermission) gin.HandlerFu
 		clientId := ctx.GetString("ClientId")
 		userId := ctx.GetString("UserId")
 		permission, err := permissionEntity.GetByUserId(clientId, userId)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_002, "no Alert Permission")
+			return
+		}
 		if err != nil {
-			if !errors.Is(err, mongo.ErrNoDocuments) {
-				errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_001, "permission lookup failed")
-				return
-			}
-			ctx.Set("BranchId", fallbackBranch(ctx))
-			ctx.Set("AllowedEventTypes", []string{})
-			ctx.Next()
+			logrus.WithError(err).WithFields(logrus.Fields{"clientId": clientId, "userId": userId}).Warn("alert permission lookup failed")
+			errcode.Abort(ctx, http.StatusServiceUnavailable, errcode.AU_UNAVAILABLE_002, "permission store unavailable")
 			return
 		}
 		if !permission.Active {
 			errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_001, "staff permission inactive")
 			return
 		}
+		if permission.BranchId == "" {
+			errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_002, "no Alert Permission")
+			return
+		}
 		ctx.Set("BranchId", permission.BranchId)
 		ctx.Set("AllowedEventTypes", permission.AllowedEventTypes)
 		ctx.Next()
 	}
-}
-
-func fallbackBranch(ctx *gin.Context) string {
-	if branchId := ctx.GetHeader("X-Branch-Id"); branchId != "" {
-		return branchId
-	}
-	return "HQ"
 }
 
 func AllowedEventTypes(ctx *gin.Context) []string {

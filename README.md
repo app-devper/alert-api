@@ -56,6 +56,21 @@ QR token, `checkInId` ที่ตอบจาก API และ `X-Session-Token
 delivery webhook จับคู่ log ได้; SMS delivery webhook รองรับ `?clientId=` (ไม่ส่งมาจะไล่ตาม
 tenant ที่ active ในแคช)
 
+## ก่อน deploy release ที่ไม่มี HQ fallback (#32)
+
+พนักงานที่ไม่มี Alert Permission จะถูกปฏิเสธ (403 `AU-403-003`) ทุก route ที่ผูกกับ Branch —
+ก่อน deploy ให้ grant Permission ให้พนักงานเดิมที่เคยใช้งานแต่ยังไม่มี ด้วย
+
+```sh
+MONGO_HOST=<uri ของ production> go run ./cmd/grant-permissions            # dry run: พิมพ์รายชื่อที่จะ grant
+MONGO_HOST=<uri ของ production> go run ./cmd/grant-permissions --apply    # สร้างจริง (ซ้ำได้ ไม่ทับของที่ admin สร้างไว้)
+```
+
+เครื่องมือกวาดทุก tenant DB ของ prefix (`--clients 000,001` เพื่อจำกัด), หา userId จาก `audit_logs.actor`
+และ `emergency_events.triggeredBy` ที่ยังไม่มี `staff_permissions`, ให้ Branch ล่าสุดที่คนนั้นใช้งาน
+(ไม่มีให้ `HQ` ซึ่งเป็น Branch ของ data เดิมทั้งหมด), `Active`, ไม่มี Event Type ของตัวเอง
+(MANAGER ขึ้นไปไม่ต้องใช้; USER ที่ไม่มี Permission เดิมก็ trigger ไม่ได้อยู่แล้ว)
+
 ## Layout
 
 Workspace-standard Go layering: handlers ใน `app/featues/<domain>/`, DTOs ใน
@@ -70,6 +85,9 @@ Workspace-standard Go layering: handlers ใน `app/featues/<domain>/`, DTOs �
   X-Line-Delivery-Tag) + dispatcher fan-out ขนานทุกช่องทาง
 - Middleware chain พนักงาน: `RequireAuthenticated → RequireSession → RequireBranch →
   RequireAuthorization(roles...)`; ลูกค้าใช้ session token (`X-Session-Token`) ที่ออกหลังยืนยัน OTP
+  Branch มาจาก Alert Permission เท่านั้น (ไม่มีค่า default): ตอบ 403 `AU-403-003` เมื่อไม่มี Permission หรือ Permission ไม่มี branchId,
+  403 `AU-403-001` เมื่อ Permission ถูกปิดใช้งาน, และ 503 `AU-503-002` เมื่ออ่านข้อมูล Permission ไม่ได้; `GET|PUT /admin/permissions`
+  เป็น Client-scoped ไม่ผ่าน `RequireBranch` เพื่อให้ admin คนแรกของ Client ให้ Permission แรกได้
 - ทุก endpoint ตอบ envelope `{success, data, error, meta}`
 - TTL Index: `check_ins.expiresAt`, `otp_requests.expiresAt`, `delivery_logs.expiresAt`
   (PDPA auto-delete ≤ 24 ชม.)
@@ -86,3 +104,11 @@ Workspace-standard Go layering: handlers ใน `app/featues/<domain>/`, DTOs �
 - `GET|POST|PUT /admin/templates|settings|permissions|qr[...]`, `GET /admin/sms-credit` (ADMIN)
 - `POST /webhook/sms` — delivery report (HMAC signature), `POST /webhook/line` — LON delivery completion (X-Line-Signature)
 - `GET /health`
+
+## Agent skills
+
+The generic Claude Code / Codex skills (`coding-standards`, `tdd-workflow`,
+`grilling`, …) and the `ecc` rules are not in this repo. Every app-devper
+repo shares them from [app-devper/agent-skills](https://github.com/app-devper/agent-skills):
+clone it and run its `install.sh` once per machine. Only the skills about this
+repo live in `.agents/skills/`: `dev-flow`, `git-flow`, `pr`.

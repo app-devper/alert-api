@@ -56,6 +56,21 @@ QR token, `checkInId` ที่ตอบจาก API และ `X-Session-Token
 delivery webhook จับคู่ log ได้; SMS delivery webhook รองรับ `?clientId=` (ไม่ส่งมาจะไล่ตาม
 tenant ที่ active ในแคช)
 
+## ก่อน deploy release ที่ไม่มี HQ fallback (#32)
+
+พนักงานที่ไม่มี Alert Permission จะถูกปฏิเสธ (403 `AU-403-003`) ทุก route ที่ผูกกับ Branch —
+ก่อน deploy ให้ grant Permission ให้พนักงานเดิมที่เคยใช้งานแต่ยังไม่มี ด้วย
+
+```sh
+MONGO_HOST=<uri ของ production> go run ./cmd/grant-permissions            # dry run: พิมพ์รายชื่อที่จะ grant
+MONGO_HOST=<uri ของ production> go run ./cmd/grant-permissions --apply    # สร้างจริง (ซ้ำได้ ไม่ทับของที่ admin สร้างไว้)
+```
+
+เครื่องมือกวาดทุก tenant DB ของ prefix (`--clients 000,001` เพื่อจำกัด), หา userId จาก `audit_logs.actor`
+และ `emergency_events.triggeredBy` ที่ยังไม่มี `staff_permissions`, ให้ Branch ล่าสุดที่คนนั้นใช้งาน
+(ไม่มีให้ `HQ` ซึ่งเป็น Branch ของ data เดิมทั้งหมด), `Active`, ไม่มี Event Type ของตัวเอง
+(MANAGER ขึ้นไปไม่ต้องใช้; USER ที่ไม่มี Permission เดิมก็ trigger ไม่ได้อยู่แล้ว)
+
 ## Layout
 
 Workspace-standard Go layering: handlers ใน `app/featues/<domain>/`, DTOs ใน

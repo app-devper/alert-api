@@ -24,12 +24,18 @@ func MustLoad() *Config {
 	return &Config{
 		Port:      mustEnv("PORT"),
 		MongoHost: mustEnv("MONGO_HOST"),
-		DbPrefix:  envOr("MONGO_DB_PREFIX", "alert"),
+		DbPrefix:  DbPrefixFromEnv(),
 		RedisHost: mustEnv("REDIS_HOST"),
 		SecretKey: mustEnv("SECRET_KEY"),
 		System:    mustEnv("SYSTEM"),
 		ClientId:  os.Getenv("CLIENT_ID"),
 	}
+}
+
+// DbPrefixFromEnv is the tenant database prefix this deployment uses; the
+// service and its maintenance commands must agree on it.
+func DbPrefixFromEnv() string {
+	return envOr("MONGO_DB_PREFIX", "alert")
 }
 
 func mustEnv(key string) string {

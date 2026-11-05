@@ -70,6 +70,9 @@ Workspace-standard Go layering: handlers ใน `app/featues/<domain>/`, DTOs �
   X-Line-Delivery-Tag) + dispatcher fan-out ขนานทุกช่องทาง
 - Middleware chain พนักงาน: `RequireAuthenticated → RequireSession → RequireBranch →
   RequireAuthorization(roles...)`; ลูกค้าใช้ session token (`X-Session-Token`) ที่ออกหลังยืนยัน OTP
+  Branch มาจาก Alert Permission เท่านั้น (ไม่มีค่า default): ตอบ 403 `AU-403-003` เมื่อไม่มี Permission หรือ Permission ไม่มี branchId,
+  403 `AU-403-001` เมื่อ Permission ถูกปิดใช้งาน, และ 503 `AU-503-002` เมื่ออ่านข้อมูล Permission ไม่ได้; `GET|PUT /admin/permissions`
+  เป็น Client-scoped ไม่ผ่าน `RequireBranch` เพื่อให้ admin คนแรกของ Client ให้ Permission แรกได้
 - ทุก endpoint ตอบ envelope `{success, data, error, meta}`
 - TTL Index: `check_ins.expiresAt`, `otp_requests.expiresAt`, `delivery_logs.expiresAt`
   (PDPA auto-delete ≤ 24 ชม.)

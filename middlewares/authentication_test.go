@@ -4,9 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"alert/app/core/config"
+	"alert/app/core/errcode"
 	"alert/app/data/entities"
 	"alert/app/data/repositories"
 
@@ -44,57 +46,11 @@ func runMiddleware(handler gin.HandlerFunc, req *http.Request) *httptest.Respons
 	return w
 }
 
-func TestRequireBranchFallsBackToHQOnlyWhenPermissionNotFound(t *testing.T) {
+func TestRequireBranchRefusesCallerWithoutPermission(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	permissionRepo := &staffPermissionRepoStub{
 		getByUserIdFn: func(clientId string, userId string) (entities.StaffPermission, error) {
 			return entities.StaffPermission{}, mongo.ErrNoDocuments
-		},
-	}
-
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx.Set("UserId", "user-1")
-	ctx.Set("ClientId", "001")
-
-	RequireBranch(permissionRepo)(ctx)
-
-	if ctx.IsAborted() {
-		t.Fatalf("expected fallback to continue, got aborted with status %d", w.Code)
-	}
-	if got := ctx.GetString("BranchId"); got != "HQ" {
-		t.Fatalf("expected fallback branch HQ, got %q", got)
-	}
-}
-
-func TestRequireBranchIgnoresBranchHeaderWhenPermissionNotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	permissionRepo := &staffPermissionRepoStub{
-		getByUserIdFn: func(clientId string, userId string) (entities.StaffPermission, error) {
-			return entities.StaffPermission{}, mongo.ErrNoDocuments
-		},
-	}
-
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx.Request.Header.Set("X-Branch-Id", "BRANCH-OTHER")
-	ctx.Set("UserId", "user-1")
-	ctx.Set("ClientId", "001")
-
-	RequireBranch(permissionRepo)(ctx)
-
-	if got := ctx.GetString("BranchId"); got != "HQ" {
-		t.Fatalf("expected the caller's header to be ignored and HQ used, got %q", got)
-	}
-}
-
-func TestRequireBranchAbortsOnLookupErrorWithoutFallback(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	permissionRepo := &staffPermissionRepoStub{
-		getByUserIdFn: func(clientId string, userId string) (entities.StaffPermission, error) {
-			return entities.StaffPermission{}, errors.New("mongo unavailable")
 		},
 	}
 
@@ -107,10 +63,70 @@ func TestRequireBranchAbortsOnLookupErrorWithoutFallback(t *testing.T) {
 	RequireBranch(permissionRepo)(ctx)
 
 	if !ctx.IsAborted() {
-		t.Fatalf("expected middleware to abort on lookup error, not fall back to HQ")
+		t.Fatalf("expected a caller without an Alert Permission to be refused")
 	}
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", w.Code)
+		t.Fatalf("expected %d, got %d", http.StatusForbidden, w.Code)
+	}
+	if !strings.Contains(w.Body.String(), errcode.AU_FORBIDDEN_002) {
+		t.Fatalf("expected body to contain %s, got %s", errcode.AU_FORBIDDEN_002, w.Body.String())
+	}
+	if got := ctx.GetString("BranchId"); got != "" {
+		t.Fatalf("expected no Branch to be set, got %q", got)
+	}
+}
+
+func TestRequireBranchRefusesPermissionWithoutBranch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	permissionRepo := &staffPermissionRepoStub{
+		getByUserIdFn: func(clientId string, userId string) (entities.StaffPermission, error) {
+			return entities.StaffPermission{Active: true, BranchId: ""}, nil
+		},
+	}
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx.Set("UserId", "user-1")
+	ctx.Set("ClientId", "001")
+
+	RequireBranch(permissionRepo)(ctx)
+
+	if !ctx.IsAborted() {
+		t.Fatalf("expected a Permission without a Branch to be refused")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected %d, got %d", http.StatusForbidden, w.Code)
+	}
+	if !strings.Contains(w.Body.String(), errcode.AU_FORBIDDEN_002) {
+		t.Fatalf("expected body to contain %s, got %s", errcode.AU_FORBIDDEN_002, w.Body.String())
+	}
+}
+
+func TestRequireBranchAnswers503WhenTheStoreFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	permissionRepo := &staffPermissionRepoStub{
+		getByUserIdFn: func(clientId string, userId string) (entities.StaffPermission, error) {
+			return entities.StaffPermission{}, errors.New("down")
+		},
+	}
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx.Set("UserId", "user-1")
+	ctx.Set("ClientId", "001")
+
+	RequireBranch(permissionRepo)(ctx)
+
+	if !ctx.IsAborted() {
+		t.Fatalf("expected the middleware to abort when the store fails")
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected %d, got %d", http.StatusServiceUnavailable, w.Code)
+	}
+	if !strings.Contains(w.Body.String(), errcode.AU_UNAVAILABLE_002) {
+		t.Fatalf("expected body to contain %s, got %s", errcode.AU_UNAVAILABLE_002, w.Body.String())
 	}
 }
 

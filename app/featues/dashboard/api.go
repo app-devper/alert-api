@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func ApplyDashboardAPI(route *gin.RouterGroup, repository *domain.Repository) {
@@ -135,7 +137,13 @@ func handleStaffCheckout(ctx *gin.Context, repository *domain.Repository) {
 		return
 	}
 	userId := ctx.GetString("UserId")
-	if err := repository.CheckIn.Checkout(ctx.GetString("ClientId"), id, time.Now(), "STAFF:"+userId); err != nil {
+	err = repository.CheckIn.Checkout(ctx.GetString("ClientId"), ctx.GetString("BranchId"), id, time.Now(), "STAFF:"+userId)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		// Another Branch's Check-in, or one already checked out: not found, and no Audit entry.
+		errcode.Abort(ctx, http.StatusNotFound, errcode.CK_NOT_FOUND_001, "check-in not found")
+		return
+	}
+	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.DA_INTERNAL_001, err.Error())
 		return
 	}
@@ -177,7 +185,7 @@ func handleEventDetail(ctx *gin.Context, repository *domain.Repository) {
 		return
 	}
 	clientId := ctx.GetString("ClientId")
-	event, err := repository.EmergencyEvent.GetEventById(clientId, id)
+	event, err := repository.EmergencyEvent.GetEventById(clientId, ctx.GetString("BranchId"), id)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.EM_NOT_FOUND_001, "event not found")
 		return

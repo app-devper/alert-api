@@ -269,6 +269,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
         "200": { $ref: "#/components/responses/Ok" }
+        "404": { description: "CK-404-001: no active check-in with that id in the staff's branch (another branch, or already checked out); not audited" }
   /dashboard/events:
     get:
       summary: Event history (MANAGER+)
@@ -289,6 +290,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
         "200": { $ref: "#/components/responses/Ok" }
+        "404": { description: "EM-404-001: no event with that id in the staff's branch" }
   /admin/templates:
     get:
       summary: List message templates

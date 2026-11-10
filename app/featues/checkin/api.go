@@ -167,7 +167,7 @@ func handleMe(ctx *gin.Context, repository *domain.Repository) {
 
 func handleSelfCheckout(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.Checkout(checkIn.ClientId, checkIn.Id, time.Now(), constant.CheckedOutBySelf); err != nil {
+	if err := repository.CheckIn.Checkout(checkIn.ClientId, checkIn.BranchId, checkIn.Id, time.Now(), constant.CheckedOutBySelf); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}

@@ -23,7 +23,7 @@ type ICheckIn interface {
 	GetCheckInBySessionTokenHash(clientId string, tokenHash string) (entities.CheckIn, error)
 	GetActiveCheckIns(clientId string, branchId string, now time.Time) ([]entities.CheckIn, error)
 	MarkOtpVerified(clientId string, id primitive.ObjectID, verifiedAt time.Time, sessionTokenHash string, expiresAt time.Time) error
-	Checkout(clientId string, id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error
+	Checkout(clientId string, branchId string, id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error
 	SetPushSubscription(clientId string, id primitive.ObjectID, subscription *entities.PushSubscription) error
 	ClearPushSubscription(clientId string, id primitive.ObjectID) error
 	DeleteCheckIn(clientId string, id primitive.ObjectID) error
@@ -118,18 +118,27 @@ func (entity *checkInEntity) MarkOtpVerified(clientId string, id primitive.Objec
 	return err
 }
 
-func (entity *checkInEntity) Checkout(clientId string, id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error {
+// Checkout marks the active Check-in with that id in that Branch as checked
+// out. It returns mongo.ErrNoDocuments when no such active Check-in exists:
+// the id belongs to another Branch, or it is already checked out.
+func (entity *checkInEntity) Checkout(clientId string, branchId string, id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error {
 	col, err := entity.collection(clientId)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err = col.UpdateOne(ctx, bson.M{"_id": id, "checkedOutAt": nil}, bson.M{"$set": bson.M{
+	result, err := col.UpdateOne(ctx, bson.M{"_id": id, "branchId": branchId, "checkedOutAt": nil}, bson.M{"$set": bson.M{
 		"checkedOutAt": checkedOutAt,
 		"checkedOutBy": checkedOutBy,
 	}})
-	return err
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return mongo.ErrNoDocuments
+	}
+	return nil
 }
 
 func (entity *checkInEntity) SetPushSubscription(clientId string, id primitive.ObjectID, subscription *entities.PushSubscription) error {

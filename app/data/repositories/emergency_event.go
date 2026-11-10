@@ -30,7 +30,7 @@ type EventQuery struct {
 
 type IEmergencyEvent interface {
 	CreateEvent(event entities.EmergencyEvent) (entities.EmergencyEvent, error)
-	GetEventById(clientId string, id primitive.ObjectID) (entities.EmergencyEvent, error)
+	GetEventById(clientId string, branchId string, id primitive.ObjectID) (entities.EmergencyEvent, error)
 	GetLatestEvent(clientId string, branchId string, eventType string) (*entities.EmergencyEvent, error)
 	GetLatestOpenEvent(clientId string, branchId string) (*entities.EmergencyEvent, error)
 	QueryEvents(query EventQuery) ([]entities.EmergencyEvent, int64, error)
@@ -58,7 +58,9 @@ func (entity *emergencyEventEntity) CreateEvent(event entities.EmergencyEvent) (
 	return event, err
 }
 
-func (entity *emergencyEventEntity) GetEventById(clientId string, id primitive.ObjectID) (entities.EmergencyEvent, error) {
+// GetEventById returns the event with that id in that Branch;
+// mongo.ErrNoDocuments when the event is not in that Branch.
+func (entity *emergencyEventEntity) GetEventById(clientId string, branchId string, id primitive.ObjectID) (entities.EmergencyEvent, error) {
 	var event entities.EmergencyEvent
 	col, err := entity.collection(clientId)
 	if err != nil {
@@ -66,7 +68,7 @@ func (entity *emergencyEventEntity) GetEventById(clientId string, id primitive.O
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err = col.FindOne(ctx, bson.M{"_id": id}).Decode(&event)
+	err = col.FindOne(ctx, bson.M{"_id": id, "branchId": branchId}).Decode(&event)
 	return event, err
 }
 

@@ -1,6 +1,7 @@
 package checkin
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func ApplyCheckInAPI(route *gin.RouterGroup, repository *domain.Repository) {
@@ -167,7 +169,9 @@ func handleMe(ctx *gin.Context, repository *domain.Repository) {
 
 func handleSelfCheckout(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.Checkout(checkIn.ClientId, checkIn.Id, time.Now(), constant.CheckedOutBySelf); err != nil {
+	err := repository.CheckIn.Checkout(checkIn.ClientId, checkIn.BranchId, checkIn.Id, time.Now(), constant.CheckedOutBySelf)
+	// A second checkout finds no active Check-in; the customer's checkout is idempotent.
+	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}

@@ -11,6 +11,7 @@ import (
 	"alert/app/core/errcode"
 	"alert/app/data/entities"
 	"alert/app/data/repositories"
+	"alert/app/domain/staff"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -71,7 +72,7 @@ func TestRequireBranchRefusesCallerWithoutPermission(t *testing.T) {
 	if !strings.Contains(w.Body.String(), errcode.AU_FORBIDDEN_002) {
 		t.Fatalf("expected body to contain %s, got %s", errcode.AU_FORBIDDEN_002, w.Body.String())
 	}
-	if got := ctx.GetString("BranchId"); got != "" {
+	if got := staff.Current(ctx).Scope.BranchId; got != "" {
 		t.Fatalf("expected no Branch to be set, got %q", got)
 	}
 }
@@ -135,7 +136,7 @@ func TestRequireBranchUsesPermissionBranchWhenFound(t *testing.T) {
 	permissionRepo := &staffPermissionRepoStub{
 		getByUserIdFn: func(clientId string, userId string) (entities.StaffPermission, error) {
 			return entities.StaffPermission{
-				BranchId: "BRANCH-2", Active: true, AllowedEventTypes: []string{"FIRE"},
+				ClientId: "c01", BranchId: "B1", Active: true, AllowedEventTypes: []string{"FIRE"},
 			}, nil
 		},
 	}
@@ -144,15 +145,23 @@ func TestRequireBranchUsesPermissionBranchWhenFound(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	ctx.Set("UserId", "user-1")
-	ctx.Set("ClientId", "001")
+	ctx.Set("ClientId", "c01")
+	ctx.Set("Role", "USER")
 
 	RequireBranch(permissionRepo)(ctx)
 
 	if ctx.IsAborted() {
 		t.Fatalf("expected middleware to continue")
 	}
-	if got := ctx.GetString("BranchId"); got != "BRANCH-2" {
-		t.Fatalf("expected BRANCH-2, got %q", got)
+	s := staff.Current(ctx)
+	if s.Scope != (repositories.Scope{ClientId: "c01", BranchId: "B1"}) || s.UserId != "user-1" {
+		t.Fatalf("Staff not resolved from the Permission: %+v", s)
+	}
+	if !s.MayTrigger("FIRE") || s.MayTrigger("EVACUATE") {
+		t.Fatal("Staff does not carry the Permission's Event Types")
+	}
+	if _, exists := ctx.Get("BranchId"); exists {
+		t.Fatal("the BranchId string key must be gone")
 	}
 }
 

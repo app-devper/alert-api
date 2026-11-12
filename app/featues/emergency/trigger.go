@@ -13,16 +13,16 @@ import (
 	"alert/app/data/entities"
 	"alert/app/domain"
 	"alert/app/domain/request"
+	"alert/app/domain/staff"
 
-	"github.com/app-devper/um-api/sessionclient"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func handleRealAlert(ctx *gin.Context, repository *domain.Repository, req request.TriggerAlert) {
-	clientId := ctx.GetString("ClientId")
-	branchId := ctx.GetString("BranchId")
+	s := staff.Current(ctx)
+	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
 	now := time.Now()
 
 	setting, err := repository.BranchSetting.GetSetting(clientId, branchId)
@@ -73,13 +73,12 @@ func handleRealAlert(ctx *gin.Context, repository *domain.Repository, req reques
 }
 
 func handleTestAlert(ctx *gin.Context, repository *domain.Repository, req request.TriggerAlert) {
-	role := ctx.GetString("Role")
-	if !sessionclient.Role(role).AtLeast(sessionclient.RoleManager) {
+	s := staff.Current(ctx)
+	if !s.MayTest() {
 		errcode.Abort(ctx, http.StatusForbidden, errcode.EM_FORBIDDEN_002, "test mode requires MANAGER or above")
 		return
 	}
-	clientId := ctx.GetString("ClientId")
-	branchId := ctx.GetString("BranchId")
+	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
 	now := time.Now()
 
 	setting, err := repository.BranchSetting.GetSetting(clientId, branchId)
@@ -120,12 +119,8 @@ func handleTestAlert(ctx *gin.Context, repository *domain.Repository, req reques
 	outcome := repository.Dispatcher.DispatchTest(providerConfig, event, testRecipients, template, logTtl)
 	finalizeDispatch(repository, &event, outcome)
 
-	repository.AuditLog.Record(entities.AuditLog{
-		ClientId: clientId, BranchId: branchId,
-		Actor: ctx.GetString("UserId"), Action: constant.ActionTestAlert,
-		Detail: bson.M{"eventNo": event.EventNo, "recipientCount": event.RecipientCount},
-		Result: constant.ResultSuccess,
-	})
+	repository.AuditLog.Record(s.AuditEntry(constant.ActionTestAlert, constant.ResultSuccess,
+		bson.M{"eventNo": event.EventNo, "recipientCount": event.RecipientCount}))
 	response.Ok(ctx, gin.H{"event": event, "channelSummary": event.ChannelSummary})
 }
 
@@ -157,7 +152,7 @@ func verifyPin(ctx *gin.Context, repository *domain.Repository, setting entities
 	if err := bcrypt.CompareHashAndPassword([]byte(setting.PinHash), []byte(pin)); err != nil {
 		count := pinLocks.Fail(repository.RateLimit, lockKey, time.Duration(constant.PinLockMinutes)*time.Minute)
 		if count >= constant.PinMaxAttempts {
-			notifyPinLocked(repository, setting, ctx.GetString("UserId"))
+			notifyPinLocked(repository, setting, staff.Current(ctx).UserId)
 		}
 		errcode.Abort(ctx, http.StatusForbidden, errcode.EM_FORBIDDEN_002, "invalid PIN")
 		return false
@@ -179,8 +174,8 @@ func passCooldown(ctx *gin.Context, repository *domain.Repository, req request.T
 	if alerting.IsCooldownExempt(req.EventType) {
 		return true
 	}
-	clientId := ctx.GetString("ClientId")
-	branchId := ctx.GetString("BranchId")
+	s := staff.Current(ctx)
+	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
 	latest, err := repository.EmergencyEvent.GetLatestEvent(clientId, branchId, req.EventType)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.EM_INTERNAL_001, err.Error())
@@ -193,15 +188,10 @@ func passCooldown(ctx *gin.Context, repository *domain.Repository, req request.T
 	if remaining <= 0 {
 		return true
 	}
-	role := ctx.GetString("Role")
-	canOverride := sessionclient.Role(role).AtLeast(sessionclient.RoleManager)
+	canOverride := s.MayOverrideCooldown()
 	if req.OverrideCooldown && canOverride {
-		repository.AuditLog.Record(entities.AuditLog{
-			ClientId: clientId, BranchId: branchId,
-			Actor: ctx.GetString("UserId"), Action: constant.ActionCooldownOverride,
-			Detail: bson.M{"eventType": req.EventType, "lastSentAt": latest.SentAt},
-			Result: constant.ResultSuccess,
-		})
+		repository.AuditLog.Record(s.AuditEntry(constant.ActionCooldownOverride, constant.ResultSuccess,
+			bson.M{"eventType": req.EventType, "lastSentAt": latest.SentAt}))
 		return true
 	}
 	errcode.Abort(ctx, http.StatusConflict, errcode.EM_CONFLICT_001,
@@ -210,7 +200,8 @@ func passCooldown(ctx *gin.Context, repository *domain.Repository, req request.T
 }
 
 func createEvent(repository *domain.Repository, ctx *gin.Context, req request.TriggerAlert, template entities.MessageTemplate, recipientCount int, now time.Time, prefix string) (entities.EmergencyEvent, error) {
-	clientId := ctx.GetString("ClientId")
+	s := staff.Current(ctx)
+	clientId := s.Scope.ClientId
 	sequence, err := repository.Counter.NextSequence(clientId, prefix, now)
 	if err != nil {
 		return entities.EmergencyEvent{}, err
@@ -218,10 +209,10 @@ func createEvent(repository *domain.Repository, ctx *gin.Context, req request.Tr
 	event := entities.EmergencyEvent{
 		EventNo:            alerting.FormatEventNo(prefix, now, sequence),
 		ClientId:           clientId,
-		BranchId:           ctx.GetString("BranchId"),
+		BranchId:           s.Scope.BranchId,
 		EventType:          req.EventType,
 		TemplateId:         template.Id,
-		TriggeredBy:        ctx.GetString("UserId"),
+		TriggeredBy:        s.UserId,
 		ConfirmedWith:      req.ConfirmMethod,
 		CooldownOverridden: req.OverrideCooldown,
 		RecipientCount:     recipientCount,
@@ -254,12 +245,6 @@ func isAllFailed(summary entities.ChannelSummary, recipientCount int) bool {
 }
 
 func auditTrigger(ctx *gin.Context, repository *domain.Repository, eventType string, result string, detail string) {
-	repository.AuditLog.Record(entities.AuditLog{
-		ClientId: ctx.GetString("ClientId"),
-		BranchId: ctx.GetString("BranchId"),
-		Actor:    ctx.GetString("UserId"),
-		Action:   constant.ActionTriggerAlert,
-		Detail:   bson.M{"eventType": eventType, "info": detail},
-		Result:   result,
-	})
+	repository.AuditLog.Record(staff.Current(ctx).AuditEntry(constant.ActionTriggerAlert, result,
+		bson.M{"eventType": eventType, "info": detail}))
 }

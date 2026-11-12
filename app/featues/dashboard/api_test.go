@@ -12,7 +12,9 @@ import (
 	"alert/app/data/entities"
 	"alert/app/data/repositories"
 	"alert/app/domain"
+	"alert/app/domain/staff"
 
+	"github.com/app-devper/um-api/sessionclient"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -51,8 +53,8 @@ func staffContext(t *testing.T, method, path, id string) (*gin.Context, *httptes
 	ctx.Request = httptest.NewRequest(method, path, nil)
 	ctx.Params = gin.Params{{Key: "id", Value: id}}
 	ctx.Set("ClientId", "c01")
-	ctx.Set("BranchId", "B1")
 	ctx.Set("UserId", "u1")
+	staff.Set(ctx, staff.FromPermission("u1", sessionclient.RoleUser, entities.StaffPermission{ClientId: "c01", BranchId: "B1"}))
 	return ctx, w
 }
 

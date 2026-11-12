@@ -7,6 +7,7 @@ import (
 	"alert/app/core/config"
 	"alert/app/core/errcode"
 	"alert/app/data/repositories"
+	"alert/app/domain/staff"
 	"alert/db"
 
 	"github.com/app-devper/um-api/sessionclient"
@@ -85,32 +86,7 @@ func RequireBranch(permissionEntity repositories.IStaffPermission) gin.HandlerFu
 			errcode.Abort(ctx, http.StatusForbidden, errcode.AU_FORBIDDEN_002, "no Alert Permission")
 			return
 		}
-		ctx.Set("BranchId", permission.BranchId)
-		ctx.Set("AllowedEventTypes", permission.AllowedEventTypes)
+		staff.Set(ctx, staff.FromPermission(userId, sessionclient.Role(ctx.GetString("Role")), permission))
 		ctx.Next()
 	}
-}
-
-func AllowedEventTypes(ctx *gin.Context) []string {
-	value, exists := ctx.Get("AllowedEventTypes")
-	if !exists {
-		return nil
-	}
-	allowed, ok := value.([]string)
-	if !ok {
-		return nil
-	}
-	return allowed
-}
-
-func CanTriggerEventType(ctx *gin.Context, eventType string) bool {
-	if sessionclient.Role(ctx.GetString("Role")).AtLeast(sessionclient.RoleManager) {
-		return true
-	}
-	for _, allowed := range AllowedEventTypes(ctx) {
-		if allowed == eventType {
-			return true
-		}
-	}
-	return false
 }

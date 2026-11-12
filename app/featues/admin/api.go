@@ -6,6 +6,7 @@ import (
 	"alert/app/core/errcode"
 	"alert/app/core/response"
 	"alert/app/domain"
+	"alert/app/domain/staff"
 	"alert/middlewares"
 
 	"github.com/app-devper/um-api/sessionclient"
@@ -59,7 +60,8 @@ func ApplyAdminAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	})
 
 	r.GET("/settings", func(ctx *gin.Context) {
-		setting, err := repository.BranchSetting.GetSetting(ctx.GetString("ClientId"), ctx.GetString("BranchId"))
+		s := staff.Current(ctx)
+		setting, err := repository.BranchSetting.GetSetting(s.Scope.ClientId, s.Scope.BranchId)
 		if err != nil {
 			errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
 			return

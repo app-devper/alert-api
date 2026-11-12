@@ -10,6 +10,7 @@ import (
 	"alert/app/core/response"
 	"alert/app/domain"
 	"alert/app/domain/request"
+	"alert/app/domain/staff"
 	"alert/middlewares"
 
 	"github.com/app-devper/um-api/sessionclient"
@@ -33,9 +34,8 @@ func ApplyEmergencyAPI(route *gin.RouterGroup, repository *domain.Repository) {
 	})
 
 	r.GET("/active", func(ctx *gin.Context) {
-		clientId := ctx.GetString("ClientId")
-		branchId := ctx.GetString("BranchId")
-		event, err := repository.EmergencyEvent.GetLatestOpenEvent(clientId, branchId)
+		s := staff.Current(ctx)
+		event, err := repository.EmergencyEvent.GetLatestOpenEvent(s.Scope.ClientId, s.Scope.BranchId)
 		if err != nil {
 			errcode.Abort(ctx, http.StatusInternalServerError, errcode.EM_INTERNAL_001, err.Error())
 			return
@@ -45,14 +45,14 @@ func ApplyEmergencyAPI(route *gin.RouterGroup, repository *domain.Repository) {
 }
 
 func handlePreview(ctx *gin.Context, repository *domain.Repository) {
-	clientId := ctx.GetString("ClientId")
-	branchId := ctx.GetString("BranchId")
+	s := staff.Current(ctx)
+	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
 	eventType := ctx.Query("eventType")
 	if !constant.IsValidEventType(eventType) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.EM_BAD_REQUEST_001, "invalid eventType")
 		return
 	}
-	if !middlewares.CanTriggerEventType(ctx, eventType) {
+	if !s.MayTrigger(eventType) {
 		errcode.Abort(ctx, http.StatusForbidden, errcode.EM_FORBIDDEN_001, "not allowed to trigger this event type")
 		return
 	}
@@ -94,6 +94,7 @@ func cooldownStatus(repository *domain.Repository, clientId string, branchId str
 }
 
 func handleTrigger(ctx *gin.Context, repository *domain.Repository) {
+	s := staff.Current(ctx)
 	var req request.TriggerAlert
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.EM_BAD_REQUEST_001, err.Error())
@@ -103,7 +104,7 @@ func handleTrigger(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.EM_BAD_REQUEST_001, "invalid eventType")
 		return
 	}
-	if !middlewares.CanTriggerEventType(ctx, req.EventType) {
+	if !s.MayTrigger(req.EventType) {
 		auditTrigger(ctx, repository, req.EventType, constant.ResultFailed, "no permission")
 		errcode.Abort(ctx, http.StatusForbidden, errcode.EM_FORBIDDEN_001, "not allowed to trigger this event type")
 		return

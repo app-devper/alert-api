@@ -12,6 +12,7 @@ import (
 	"alert/app/data/entities"
 	"alert/app/data/repositories"
 	"alert/app/domain"
+	"alert/app/domain/staff"
 	"alert/middlewares"
 
 	"github.com/app-devper/um-api/sessionclient"
@@ -53,8 +54,8 @@ func ApplyDashboardAPI(route *gin.RouterGroup, repository *domain.Repository) {
 }
 
 func handleSummary(ctx *gin.Context, repository *domain.Repository) {
-	clientId := ctx.GetString("ClientId")
-	branchId := ctx.GetString("BranchId")
+	s := staff.Current(ctx)
+	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
 	now := time.Now()
 	checkIns, err := repository.CheckIn.GetActiveCheckIns(clientId, branchId, now)
 	if err != nil {
@@ -90,8 +91,8 @@ type checkInListItem struct {
 }
 
 func handleCheckInList(ctx *gin.Context, repository *domain.Repository) {
-	clientId := ctx.GetString("ClientId")
-	branchId := ctx.GetString("BranchId")
+	s := staff.Current(ctx)
+	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
 	search := ctx.Query("search")
 	now := time.Now()
 	checkIns, err := repository.CheckIn.GetActiveCheckIns(clientId, branchId, now)
@@ -114,12 +115,8 @@ func handleCheckInList(ctx *gin.Context, repository *domain.Repository) {
 			HasPush:     checkIn.HasPush(),
 		})
 	}
-	repository.AuditLog.Record(entities.AuditLog{
-		ClientId: clientId, BranchId: branchId,
-		Actor: ctx.GetString("UserId"), Action: constant.ActionViewCheckinList,
-		Detail: bson.M{"count": len(items), "search": search != ""},
-		Result: constant.ResultSuccess,
-	})
+	repository.AuditLog.Record(s.AuditEntry(constant.ActionViewCheckinList, constant.ResultSuccess,
+		bson.M{"count": len(items), "search": search != ""}))
 	response.Ok(ctx, items)
 }
 
@@ -136,8 +133,8 @@ func handleStaffCheckout(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.DA_BAD_REQUEST_001, "invalid id")
 		return
 	}
-	userId := ctx.GetString("UserId")
-	err = repository.CheckIn.Checkout(ctx.GetString("ClientId"), ctx.GetString("BranchId"), id, time.Now(), "STAFF:"+userId)
+	s := staff.Current(ctx)
+	err = repository.CheckIn.Checkout(s.Scope.ClientId, s.Scope.BranchId, id, time.Now(), "STAFF:"+s.UserId)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		// Another Branch's Check-in, or one already checked out: not found, and no Audit entry.
 		errcode.Abort(ctx, http.StatusNotFound, errcode.CK_NOT_FOUND_001, "check-in not found")
@@ -147,19 +144,16 @@ func handleStaffCheckout(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.DA_INTERNAL_001, err.Error())
 		return
 	}
-	repository.AuditLog.Record(entities.AuditLog{
-		ClientId: ctx.GetString("ClientId"), BranchId: ctx.GetString("BranchId"),
-		Actor: userId, Action: constant.ActionCheckoutCustomer,
-		Detail: bson.M{"checkInId": id.Hex()},
-		Result: constant.ResultSuccess,
-	})
+	repository.AuditLog.Record(s.AuditEntry(constant.ActionCheckoutCustomer, constant.ResultSuccess,
+		bson.M{"checkInId": id.Hex()}))
 	response.Ok(ctx, gin.H{"status": "CHECKED_OUT"})
 }
 
 func handleEventHistory(ctx *gin.Context, repository *domain.Repository) {
+	s := staff.Current(ctx)
 	query := repositories.EventQuery{
-		ClientId:  ctx.GetString("ClientId"),
-		BranchId:  ctx.GetString("BranchId"),
+		ClientId:  s.Scope.ClientId,
+		BranchId:  s.Scope.BranchId,
 		EventType: ctx.Query("eventType"),
 		Page:      parseInt(ctx.Query("page"), 1),
 		Limit:     parseInt(ctx.Query("limit"), 20),
@@ -184,8 +178,9 @@ func handleEventDetail(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.DA_BAD_REQUEST_001, "invalid id")
 		return
 	}
-	clientId := ctx.GetString("ClientId")
-	event, err := repository.EmergencyEvent.GetEventById(clientId, ctx.GetString("BranchId"), id)
+	s := staff.Current(ctx)
+	clientId := s.Scope.ClientId
+	event, err := repository.EmergencyEvent.GetEventById(clientId, s.Scope.BranchId, id)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.EM_NOT_FOUND_001, "event not found")
 		return

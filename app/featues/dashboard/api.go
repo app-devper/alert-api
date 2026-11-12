@@ -55,9 +55,9 @@ func ApplyDashboardAPI(route *gin.RouterGroup, repository *domain.Repository) {
 
 func handleSummary(ctx *gin.Context, repository *domain.Repository) {
 	s := staff.Current(ctx)
-	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
+	branchId := s.Scope.BranchId
 	now := time.Now()
-	checkIns, err := repository.CheckIn.GetActiveCheckIns(clientId, branchId, now)
+	checkIns, err := repository.CheckIn.GetActiveCheckIns(s.Scope, now)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.DA_INTERNAL_001, err.Error())
 		return
@@ -92,10 +92,9 @@ type checkInListItem struct {
 
 func handleCheckInList(ctx *gin.Context, repository *domain.Repository) {
 	s := staff.Current(ctx)
-	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
 	search := ctx.Query("search")
 	now := time.Now()
-	checkIns, err := repository.CheckIn.GetActiveCheckIns(clientId, branchId, now)
+	checkIns, err := repository.CheckIn.GetActiveCheckIns(s.Scope, now)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.DA_INTERNAL_001, err.Error())
 		return
@@ -134,7 +133,7 @@ func handleStaffCheckout(ctx *gin.Context, repository *domain.Repository) {
 		return
 	}
 	s := staff.Current(ctx)
-	err = repository.CheckIn.Checkout(s.Scope.ClientId, s.Scope.BranchId, id, time.Now(), "STAFF:"+s.UserId)
+	err = repository.CheckIn.Checkout(s.Scope, id, time.Now(), "STAFF:"+s.UserId)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		// Another Branch's Check-in, or one already checked out: not found, and no Audit entry.
 		errcode.Abort(ctx, http.StatusNotFound, errcode.CK_NOT_FOUND_001, "check-in not found")
@@ -152,8 +151,7 @@ func handleStaffCheckout(ctx *gin.Context, repository *domain.Repository) {
 func handleEventHistory(ctx *gin.Context, repository *domain.Repository) {
 	s := staff.Current(ctx)
 	query := repositories.EventQuery{
-		ClientId:  s.Scope.ClientId,
-		BranchId:  s.Scope.BranchId,
+		Scope:     s.Scope,
 		EventType: ctx.Query("eventType"),
 		Page:      parseInt(ctx.Query("page"), 1),
 		Limit:     parseInt(ctx.Query("limit"), 20),
@@ -180,7 +178,7 @@ func handleEventDetail(ctx *gin.Context, repository *domain.Repository) {
 	}
 	s := staff.Current(ctx)
 	clientId := s.Scope.ClientId
-	event, err := repository.EmergencyEvent.GetEventById(clientId, s.Scope.BranchId, id)
+	event, err := repository.EmergencyEvent.GetEventById(s.Scope, id)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.EM_NOT_FOUND_001, "event not found")
 		return

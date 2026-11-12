@@ -22,20 +22,20 @@ import (
 
 type checkInStub struct {
 	repositories.ICheckIn
-	checkoutFn func(clientId, branchId string, id primitive.ObjectID) error
+	checkoutFn func(scope repositories.Scope, id primitive.ObjectID) error
 }
 
-func (s *checkInStub) Checkout(clientId, branchId string, id primitive.ObjectID, _ time.Time, _ string) error {
-	return s.checkoutFn(clientId, branchId, id)
+func (s *checkInStub) Checkout(scope repositories.Scope, id primitive.ObjectID, _ time.Time, _ string) error {
+	return s.checkoutFn(scope, id)
 }
 
 type eventStub struct {
 	repositories.IEmergencyEvent
-	getFn func(clientId, branchId string, id primitive.ObjectID) (entities.EmergencyEvent, error)
+	getFn func(scope repositories.Scope, id primitive.ObjectID) (entities.EmergencyEvent, error)
 }
 
-func (s *eventStub) GetEventById(clientId, branchId string, id primitive.ObjectID) (entities.EmergencyEvent, error) {
-	return s.getFn(clientId, branchId, id)
+func (s *eventStub) GetEventById(scope repositories.Scope, id primitive.ObjectID) (entities.EmergencyEvent, error) {
+	return s.getFn(scope, id)
 }
 
 type auditStub struct {
@@ -61,10 +61,10 @@ func staffContext(t *testing.T, method, path, id string) (*gin.Context, *httptes
 func TestStaffCheckoutOfAForeignBranchIs404AndNotAudited(t *testing.T) {
 	id := primitive.NewObjectID()
 	audit := &auditStub{}
-	var gotBranch string
+	var gotScope repositories.Scope
 	repo := &domain.Repository{
-		CheckIn: &checkInStub{checkoutFn: func(_, branchId string, _ primitive.ObjectID) error {
-			gotBranch = branchId
+		CheckIn: &checkInStub{checkoutFn: func(scope repositories.Scope, _ primitive.ObjectID) error {
+			gotScope = scope
 			return mongo.ErrNoDocuments
 		}},
 		AuditLog: audit,
@@ -76,8 +76,8 @@ func TestStaffCheckoutOfAForeignBranchIs404AndNotAudited(t *testing.T) {
 	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), errcode.CK_NOT_FOUND_001) {
 		t.Fatalf("expected 404 %s, got %d %s", errcode.CK_NOT_FOUND_001, w.Code, w.Body.String())
 	}
-	if gotBranch != "B1" {
-		t.Fatalf("Checkout was called with Branch %q, want the Staff's B1", gotBranch)
+	if want := (repositories.Scope{ClientId: "c01", BranchId: "B1"}); gotScope != want {
+		t.Fatalf("Checkout was called with %+v, want the Staff's %+v", gotScope, want)
 	}
 	if len(audit.recorded) != 0 {
 		t.Fatalf("a miss was audited: %+v", audit.recorded)
@@ -88,7 +88,7 @@ func TestStaffCheckoutInOwnBranchIsAuditedOnce(t *testing.T) {
 	id := primitive.NewObjectID()
 	audit := &auditStub{}
 	repo := &domain.Repository{
-		CheckIn:  &checkInStub{checkoutFn: func(string, string, primitive.ObjectID) error { return nil }},
+		CheckIn:  &checkInStub{checkoutFn: func(repositories.Scope, primitive.ObjectID) error { return nil }},
 		AuditLog: audit,
 	}
 	ctx, w := staffContext(t, http.MethodPost, "/dashboard/check-ins/"+id.Hex()+"/checkout", id.Hex())
@@ -105,9 +105,9 @@ func TestStaffCheckoutInOwnBranchIsAuditedOnce(t *testing.T) {
 
 func TestEventDetailOfAForeignBranchIs404(t *testing.T) {
 	id := primitive.NewObjectID()
-	var gotBranch string
-	repo := &domain.Repository{EmergencyEvent: &eventStub{getFn: func(_, branchId string, _ primitive.ObjectID) (entities.EmergencyEvent, error) {
-		gotBranch = branchId
+	var gotScope repositories.Scope
+	repo := &domain.Repository{EmergencyEvent: &eventStub{getFn: func(scope repositories.Scope, _ primitive.ObjectID) (entities.EmergencyEvent, error) {
+		gotScope = scope
 		return entities.EmergencyEvent{}, mongo.ErrNoDocuments
 	}}}
 	ctx, w := staffContext(t, http.MethodGet, "/dashboard/events/"+id.Hex(), id.Hex())
@@ -117,7 +117,7 @@ func TestEventDetailOfAForeignBranchIs404(t *testing.T) {
 	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), errcode.EM_NOT_FOUND_001) {
 		t.Fatalf("expected 404 %s, got %d %s", errcode.EM_NOT_FOUND_001, w.Code, w.Body.String())
 	}
-	if gotBranch != "B1" {
-		t.Fatalf("GetEventById was called with Branch %q, want B1", gotBranch)
+	if want := (repositories.Scope{ClientId: "c01", BranchId: "B1"}); gotScope != want {
+		t.Fatalf("GetEventById was called with %+v, want %+v", gotScope, want)
 	}
 }

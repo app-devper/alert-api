@@ -18,18 +18,18 @@ import (
 
 type checkInStub struct {
 	repositories.ICheckIn
-	checkoutFn func(clientId, branchId string, id primitive.ObjectID) error
+	checkoutFn func(scope repositories.Scope, id primitive.ObjectID) error
 }
 
-func (s *checkInStub) Checkout(clientId, branchId string, id primitive.ObjectID, _ time.Time, _ string) error {
-	return s.checkoutFn(clientId, branchId, id)
+func (s *checkInStub) Checkout(scope repositories.Scope, id primitive.ObjectID, _ time.Time, _ string) error {
+	return s.checkoutFn(scope, id)
 }
 
 func TestSelfCheckoutIsIdempotentAndScopedToTheCheckInsBranch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	var gotBranch string
-	repo := &domain.Repository{CheckIn: &checkInStub{checkoutFn: func(_, branchId string, _ primitive.ObjectID) error {
-		gotBranch = branchId
+	var gotScope repositories.Scope
+	repo := &domain.Repository{CheckIn: &checkInStub{checkoutFn: func(scope repositories.Scope, _ primitive.ObjectID) error {
+		gotScope = scope
 		return mongo.ErrNoDocuments
 	}}}
 	w := httptest.NewRecorder()
@@ -42,7 +42,7 @@ func TestSelfCheckoutIsIdempotentAndScopedToTheCheckInsBranch(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "CHECKED_OUT") {
 		t.Fatalf("expected 200 CHECKED_OUT, got %d %s", w.Code, w.Body.String())
 	}
-	if gotBranch != "B7" {
-		t.Fatalf("Checkout was called with Branch %q, want the Check-in's B7", gotBranch)
+	if want := (repositories.Scope{ClientId: "c01", BranchId: "B7"}); gotScope != want {
+		t.Fatalf("Checkout was called with %+v, want the Check-in's %+v", gotScope, want)
 	}
 }

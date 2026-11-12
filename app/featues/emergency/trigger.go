@@ -11,6 +11,7 @@ import (
 	"alert/app/core/messaging"
 	"alert/app/core/response"
 	"alert/app/data/entities"
+	"alert/app/data/repositories"
 	"alert/app/domain"
 	"alert/app/domain/request"
 	"alert/app/domain/staff"
@@ -43,7 +44,7 @@ func handleRealAlert(ctx *gin.Context, repository *domain.Repository, req reques
 		return
 	}
 
-	recipients, err := repository.CheckIn.GetActiveCheckIns(clientId, branchId, now)
+	recipients, err := repository.CheckIn.GetActiveCheckIns(s.Scope, now)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.EM_INTERNAL_001, err.Error())
 		return
@@ -61,7 +62,7 @@ func handleRealAlert(ctx *gin.Context, repository *domain.Repository, req reques
 	finalizeDispatch(repository, &event, outcome)
 
 	if req.EventType == constant.EventAllClear {
-		_ = repository.EmergencyEvent.CloseOpenEvents(clientId, branchId, now)
+		_ = repository.EmergencyEvent.CloseOpenEvents(s.Scope, now)
 	}
 
 	auditTrigger(ctx, repository, req.EventType, constant.ResultSuccess, event.EventNo)
@@ -175,8 +176,7 @@ func passCooldown(ctx *gin.Context, repository *domain.Repository, req request.T
 		return true
 	}
 	s := staff.Current(ctx)
-	clientId, branchId := s.Scope.ClientId, s.Scope.BranchId
-	latest, err := repository.EmergencyEvent.GetLatestEvent(clientId, branchId, req.EventType)
+	latest, err := repository.EmergencyEvent.GetLatestEvent(s.Scope, req.EventType)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.EM_INTERNAL_001, err.Error())
 		return false
@@ -231,9 +231,10 @@ func finalizeDispatch(repository *domain.Repository, event *entities.EmergencyEv
 	}
 	event.ChannelSummary = outcome.Summary
 	event.ProviderReference = outcome.ProviderReference
-	_ = repository.EmergencyEvent.UpdateChannelSummary(event.ClientId, event.Id, outcome.Summary, outcome.ProviderReference)
+	scope := repositories.Scope{ClientId: event.ClientId, BranchId: event.BranchId}
+	_ = repository.EmergencyEvent.UpdateChannelSummary(scope, event.Id, outcome.Summary, outcome.ProviderReference)
 	for _, checkInId := range outcome.GoneSubscriptionIds {
-		_ = repository.CheckIn.ClearPushSubscription(event.ClientId, checkInId)
+		_ = repository.CheckIn.ClearPushSubscription(scope, checkInId)
 	}
 }
 

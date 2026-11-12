@@ -11,6 +11,7 @@ import (
 	"alert/app/core/errcode"
 	"alert/app/core/response"
 	"alert/app/data/entities"
+	"alert/app/data/repositories"
 	"alert/app/domain"
 	"alert/app/domain/request"
 	"alert/db"
@@ -167,9 +168,14 @@ func handleMe(ctx *gin.Context, repository *domain.Repository) {
 	})
 }
 
+// scopeOf is the Scope of the Branch a customer checked in to.
+func scopeOf(checkIn entities.CheckIn) repositories.Scope {
+	return repositories.Scope{ClientId: checkIn.ClientId, BranchId: checkIn.BranchId}
+}
+
 func handleSelfCheckout(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
-	err := repository.CheckIn.Checkout(checkIn.ClientId, checkIn.BranchId, checkIn.Id, time.Now(), constant.CheckedOutBySelf)
+	err := repository.CheckIn.Checkout(scopeOf(checkIn), checkIn.Id, time.Now(), constant.CheckedOutBySelf)
 	// A second checkout finds no active Check-in; the customer's checkout is idempotent.
 	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
@@ -189,7 +195,7 @@ func handlePushSubscribe(ctx *gin.Context, repository *domain.Repository) {
 		Endpoint: req.Endpoint,
 		Keys:     entities.PushKeys{P256dh: req.P256dh, Auth: req.Auth},
 	}
-	if err := repository.CheckIn.SetPushSubscription(checkIn.ClientId, checkIn.Id, subscription); err != nil {
+	if err := repository.CheckIn.SetPushSubscription(scopeOf(checkIn), checkIn.Id, subscription); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
@@ -198,7 +204,7 @@ func handlePushSubscribe(ctx *gin.Context, repository *domain.Repository) {
 
 func handlePushUnsubscribe(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.ClearPushSubscription(checkIn.ClientId, checkIn.Id); err != nil {
+	if err := repository.CheckIn.ClearPushSubscription(scopeOf(checkIn), checkIn.Id); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}
@@ -207,7 +213,7 @@ func handlePushUnsubscribe(ctx *gin.Context, repository *domain.Repository) {
 
 func handleWithdrawConsent(ctx *gin.Context, repository *domain.Repository) {
 	checkIn := currentCheckIn(ctx)
-	if err := repository.CheckIn.DeleteCheckIn(checkIn.ClientId, checkIn.Id); err != nil {
+	if err := repository.CheckIn.DeleteCheckIn(scopeOf(checkIn), checkIn.Id); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.CK_INTERNAL_001, err.Error())
 		return
 	}

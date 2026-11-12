@@ -120,7 +120,7 @@ func handleResendOtp(ctx *gin.Context, repository *domain.Repository) {
 	if !ok {
 		return
 	}
-	checkIn, err := repository.CheckIn.GetCheckInById(clientId, id)
+	checkIn, err := repository.CheckIn.FindCheckInByRef(clientId, id)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.CK_NOT_FOUND_001, "check-in not found")
 		return
@@ -196,7 +196,7 @@ func handleVerifyOtp(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.OT_BAD_REQUEST_001, err.Error())
 		return
 	}
-	checkIn, err := repository.CheckIn.GetCheckInById(clientId, id)
+	checkIn, err := repository.CheckIn.FindCheckInByRef(clientId, id)
 	if err != nil {
 		errcode.Abort(ctx, http.StatusNotFound, errcode.CK_NOT_FOUND_001, "check-in not found")
 		return
@@ -255,7 +255,7 @@ func activateCheckIn(repository *domain.Repository, checkIn entities.CheckIn, se
 	}
 	sessionToken := alerting.ComposeTenantRef(checkIn.ClientId, rawToken)
 	expiresAt := now.Add(time.Duration(setting.RetentionHours) * time.Hour)
-	if err := repository.CheckIn.MarkOtpVerified(checkIn.ClientId, checkIn.Id, now, alerting.HashToken(sessionToken), expiresAt); err != nil {
+	if err := repository.CheckIn.MarkOtpVerified(scopeOf(checkIn), checkIn.Id, now, alerting.HashToken(sessionToken), expiresAt); err != nil {
 		return "", time.Time{}, err
 	}
 	return sessionToken, expiresAt, nil

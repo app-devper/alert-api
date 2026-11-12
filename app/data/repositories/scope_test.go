@@ -52,8 +52,17 @@ func TestAForeignBranchSeesNothing(t *testing.T) {
 	}
 
 	// own Branch sees them
-	if list, _ := checkIns.GetActiveCheckIns(own, now); len(list) != 1 {
-		t.Fatalf("own Branch: %d active Check-ins, want 1", len(list))
+	if list, err := checkIns.GetActiveCheckIns(own, now); err != nil || len(list) != 1 {
+		t.Fatalf("own Branch: %d active Check-ins (err %v), want 1", len(list), err)
+	}
+	if n, err := checkIns.CountActive(own, now); err != nil || n != 1 {
+		t.Fatalf("own Branch CountActive: %d (err %v), want 1", n, err)
+	}
+	if latest, err := events.GetLatestEvent(own, "FIRE"); err != nil || latest == nil || latest.Id != event.Id {
+		t.Fatalf("own Branch latest event: %+v, %v", latest, err)
+	}
+	if list, total, err := events.QueryEvents(EventQuery{Scope: own, Page: 1, Limit: 20}); err != nil || total != 1 || len(list) != 1 || list[0].Id != event.Id {
+		t.Fatalf("own Branch QueryEvents: %+v total %d, %v", list, total, err)
 	}
 	if got, err := checkIns.GetCheckInById(own, checkIn.Id); err != nil || got.Id != checkIn.Id {
 		t.Fatalf("own Branch Check-in: %v", err)
@@ -69,11 +78,11 @@ func TestAForeignBranchSeesNothing(t *testing.T) {
 	if _, err := checkIns.GetCheckInById(foreign, checkIn.Id); !errors.Is(err, mongo.ErrNoDocuments) {
 		t.Fatalf("GetCheckInById: %v", err)
 	}
-	if list, _ := checkIns.GetActiveCheckIns(foreign, now); len(list) != 0 {
-		t.Fatalf("GetActiveCheckIns: %d, want 0", len(list))
+	if list, err := checkIns.GetActiveCheckIns(foreign, now); err != nil || len(list) != 0 {
+		t.Fatalf("GetActiveCheckIns: %d (err %v), want 0 and no error", len(list), err)
 	}
-	if n, _ := checkIns.CountActive(foreign, now); n != 0 {
-		t.Fatalf("CountActive: %d, want 0", n)
+	if n, err := checkIns.CountActive(foreign, now); err != nil || n != 0 {
+		t.Fatalf("CountActive: %d (err %v), want 0 and no error", n, err)
 	}
 	if err := checkIns.Checkout(foreign, checkIn.Id, now, "STAFF:u1"); !errors.Is(err, mongo.ErrNoDocuments) {
 		t.Fatalf("Checkout: %v", err)
@@ -84,14 +93,14 @@ func TestAForeignBranchSeesNothing(t *testing.T) {
 	if _, err := events.GetEventById(foreign, event.Id); !errors.Is(err, mongo.ErrNoDocuments) {
 		t.Fatalf("GetEventById: %v", err)
 	}
-	if latest, _ := events.GetLatestEvent(foreign, "FIRE"); latest != nil {
-		t.Fatalf("GetLatestEvent: %+v, want nil", latest)
+	if latest, err := events.GetLatestEvent(foreign, "FIRE"); err != nil || latest != nil {
+		t.Fatalf("GetLatestEvent: %+v, %v, want nil and no error", latest, err)
 	}
-	if open, _ := events.GetLatestOpenEvent(foreign); open != nil {
-		t.Fatalf("GetLatestOpenEvent: %+v, want nil", open)
+	if open, err := events.GetLatestOpenEvent(foreign); err != nil || open != nil {
+		t.Fatalf("GetLatestOpenEvent: %+v, %v, want nil and no error", open, err)
 	}
-	if _, total, _ := events.QueryEvents(EventQuery{Scope: foreign, Page: 1, Limit: 20}); total != 0 {
-		t.Fatalf("QueryEvents: %d, want 0", total)
+	if list, total, err := events.QueryEvents(EventQuery{Scope: foreign, Page: 1, Limit: 20}); err != nil || total != 0 || len(list) != 0 {
+		t.Fatalf("QueryEvents: %d events, total %d, %v, want none and no error", len(list), total, err)
 	}
 	if err := events.CloseOpenEvents(foreign, now); err != nil {
 		t.Fatal(err)
@@ -156,5 +165,121 @@ func TestScopeFilterAddsBranchWithoutMutatingItsArgument(t *testing.T) {
 	}
 	if _, mutated := fields["branchId"]; mutated {
 		t.Fatal("filter mutated its argument")
+	}
+}
+
+var (
+	ownScope     = Scope{ClientId: "c01", BranchId: "B1"}
+	foreignScope = Scope{ClientId: "c01", BranchId: "B2"}
+)
+
+func createB1CheckIn(t *testing.T, checkIns ICheckIn) entities.CheckIn {
+	t.Helper()
+	created, err := checkIns.CreateCheckIn(entities.CheckIn{ClientId: "c01", BranchId: "B1", Phone: "0812345678"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return created
+}
+
+func TestMarkOtpVerifiedOnlyTakesEffectInTheCheckInsBranch(t *testing.T) {
+	checkIns := NewCheckInEntity(newTestResource(t))
+	created := createB1CheckIn(t, checkIns)
+	verifiedAt, expiresAt := time.Now().Truncate(time.Millisecond), time.Now().Add(time.Hour)
+
+	if err := checkIns.MarkOtpVerified(foreignScope, created.Id, verifiedAt, "hash", expiresAt); err != nil {
+		t.Fatalf("foreign Branch: %v", err)
+	}
+	got, err := checkIns.GetCheckInById(ownScope, created.Id)
+	if err != nil || got.OtpVerifiedAt != nil || got.SessionTokenHash != "" {
+		t.Fatalf("a foreign Branch verified the Check-in: %+v, %v", got, err)
+	}
+
+	if err := checkIns.MarkOtpVerified(ownScope, created.Id, verifiedAt, "hash", expiresAt); err != nil {
+		t.Fatalf("own Branch: %v", err)
+	}
+	got, err = checkIns.GetCheckInById(ownScope, created.Id)
+	if err != nil || got.OtpVerifiedAt == nil || got.SessionTokenHash != "hash" {
+		t.Fatalf("own Branch did not verify the Check-in: %+v, %v", got, err)
+	}
+}
+
+func TestPushSubscriptionOnlyChangesInTheCheckInsBranch(t *testing.T) {
+	checkIns := NewCheckInEntity(newTestResource(t))
+	created := createB1CheckIn(t, checkIns)
+	subscription := &entities.PushSubscription{Endpoint: "https://push.example/1"}
+	pushOf := func() *entities.PushSubscription {
+		got, err := checkIns.GetCheckInById(ownScope, created.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.PushSubscription
+	}
+
+	if err := checkIns.SetPushSubscription(foreignScope, created.Id, subscription); err != nil {
+		t.Fatalf("foreign set: %v", err)
+	}
+	if pushOf() != nil {
+		t.Fatal("a foreign Branch set the push subscription")
+	}
+	if err := checkIns.SetPushSubscription(ownScope, created.Id, subscription); err != nil {
+		t.Fatalf("own set: %v", err)
+	}
+	if got := pushOf(); got == nil || got.Endpoint != subscription.Endpoint {
+		t.Fatalf("own Branch did not set the push subscription: %+v", got)
+	}
+	if err := checkIns.ClearPushSubscription(foreignScope, created.Id); err != nil {
+		t.Fatalf("foreign clear: %v", err)
+	}
+	if pushOf() == nil {
+		t.Fatal("a foreign Branch cleared the push subscription")
+	}
+	if err := checkIns.ClearPushSubscription(ownScope, created.Id); err != nil {
+		t.Fatalf("own clear: %v", err)
+	}
+	if pushOf() != nil {
+		t.Fatal("own Branch did not clear the push subscription")
+	}
+}
+
+func TestDeleteCheckInOnlyTakesEffectInTheCheckInsBranch(t *testing.T) {
+	checkIns := NewCheckInEntity(newTestResource(t))
+	created := createB1CheckIn(t, checkIns)
+
+	if err := checkIns.DeleteCheckIn(foreignScope, created.Id); err != nil {
+		t.Fatalf("foreign Branch: %v", err)
+	}
+	if _, err := checkIns.GetCheckInById(ownScope, created.Id); err != nil {
+		t.Fatalf("a foreign Branch deleted the Check-in: %v", err)
+	}
+	if err := checkIns.DeleteCheckIn(ownScope, created.Id); err != nil {
+		t.Fatalf("own Branch: %v", err)
+	}
+	if _, err := checkIns.GetCheckInById(ownScope, created.Id); !errors.Is(err, mongo.ErrNoDocuments) {
+		t.Fatalf("own Branch did not delete the Check-in: %v", err)
+	}
+}
+
+func TestUpdateChannelSummaryOnlyTakesEffectInTheEventsBranch(t *testing.T) {
+	events := NewEmergencyEventEntity(newTestResource(t))
+	created, err := events.CreateEvent(entities.EmergencyEvent{ClientId: "c01", BranchId: "B1", EventType: "FIRE", Status: constant.EventStatusOpen, SentAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := entities.ChannelSummary{Sms: entities.ChannelStat{Sent: 3, Delivered: 2, Failed: 1}}
+
+	if err := events.UpdateChannelSummary(foreignScope, created.Id, summary, "ref-1"); err != nil {
+		t.Fatalf("foreign Branch: %v", err)
+	}
+	got, err := events.GetEventById(ownScope, created.Id)
+	if err != nil || got.ChannelSummary != (entities.ChannelSummary{}) || got.ProviderReference != "" {
+		t.Fatalf("a foreign Branch updated the event: %+v, %v", got, err)
+	}
+	if err := events.UpdateChannelSummary(ownScope, created.Id, summary, "ref-1"); err != nil {
+		t.Fatalf("own Branch: %v", err)
+	}
+	got, err = events.GetEventById(ownScope, created.Id)
+	if err != nil || got.ChannelSummary != summary || got.ProviderReference != "ref-1" {
+		t.Fatalf("own Branch did not update the event: %+v, %v", got, err)
 	}
 }

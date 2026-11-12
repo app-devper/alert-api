@@ -69,3 +69,15 @@ func TestCurrentIsZeroWithoutRequireBranch(t *testing.T) {
 		t.Fatal("Set/Current do not round-trip")
 	}
 }
+
+func TestZeroStaffMayDoNothing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	zero := Current(ctx)
+
+	if zero.MayTrigger("FIRE") || zero.MayTest() || zero.MayOverrideCooldown() {
+		t.Fatalf("the zero Staff must fail closed: trigger %v, test %v, override %v",
+			zero.MayTrigger("FIRE"), zero.MayTest(), zero.MayOverrideCooldown())
+	}
+}

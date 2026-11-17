@@ -19,15 +19,17 @@ type checkInEntity struct {
 
 type ICheckIn interface {
 	CreateCheckIn(checkIn entities.CheckIn) (entities.CheckIn, error)
-	GetCheckInById(clientId string, id primitive.ObjectID) (entities.CheckIn, error)
+	// FindCheckInByRef is Client-scoped: for the pre-Confirmation customer paths only.
+	FindCheckInByRef(clientId string, id primitive.ObjectID) (entities.CheckIn, error)
 	GetCheckInBySessionTokenHash(clientId string, tokenHash string) (entities.CheckIn, error)
-	GetActiveCheckIns(clientId string, branchId string, now time.Time) ([]entities.CheckIn, error)
-	MarkOtpVerified(clientId string, id primitive.ObjectID, verifiedAt time.Time, sessionTokenHash string, expiresAt time.Time) error
-	Checkout(clientId string, branchId string, id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error
-	SetPushSubscription(clientId string, id primitive.ObjectID, subscription *entities.PushSubscription) error
-	ClearPushSubscription(clientId string, id primitive.ObjectID) error
-	DeleteCheckIn(clientId string, id primitive.ObjectID) error
-	CountActive(clientId string, branchId string, now time.Time) (int64, error)
+	GetCheckInById(scope Scope, id primitive.ObjectID) (entities.CheckIn, error)
+	GetActiveCheckIns(scope Scope, now time.Time) ([]entities.CheckIn, error)
+	MarkOtpVerified(scope Scope, id primitive.ObjectID, verifiedAt time.Time, sessionTokenHash string, expiresAt time.Time) error
+	Checkout(scope Scope, id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error
+	SetPushSubscription(scope Scope, id primitive.ObjectID, subscription *entities.PushSubscription) error
+	ClearPushSubscription(scope Scope, id primitive.ObjectID) error
+	DeleteCheckIn(scope Scope, id primitive.ObjectID) error
+	CountActive(scope Scope, now time.Time) (int64, error)
 }
 
 func NewCheckInEntity(resource *db.Resource) ICheckIn {
@@ -38,14 +40,13 @@ func (entity *checkInEntity) collection(clientId string) (*mongo.Collection, err
 	return entity.mongo.CollectionFor(clientId, db.CollectionCheckIns)
 }
 
-func activeFilter(clientId string, branchId string, now time.Time) bson.M {
-	return bson.M{
-		"clientId":      clientId,
-		"branchId":      branchId,
+func activeFilter(scope Scope, now time.Time) bson.M {
+	return scope.filter(bson.M{
+		"clientId":      scope.ClientId,
 		"otpVerifiedAt": bson.M{"$ne": nil},
 		"checkedOutAt":  nil,
 		"expiresAt":     bson.M{"$gt": now},
-	}
+	})
 }
 
 func (entity *checkInEntity) CreateCheckIn(checkIn entities.CheckIn) (entities.CheckIn, error) {
@@ -60,7 +61,7 @@ func (entity *checkInEntity) CreateCheckIn(checkIn entities.CheckIn) (entities.C
 	return checkIn, err
 }
 
-func (entity *checkInEntity) GetCheckInById(clientId string, id primitive.ObjectID) (entities.CheckIn, error) {
+func (entity *checkInEntity) FindCheckInByRef(clientId string, id primitive.ObjectID) (entities.CheckIn, error) {
 	var checkIn entities.CheckIn
 	col, err := entity.collection(clientId)
 	if err != nil {
@@ -69,6 +70,20 @@ func (entity *checkInEntity) GetCheckInById(clientId string, id primitive.Object
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	err = col.FindOne(ctx, bson.M{"_id": id}).Decode(&checkIn)
+	return checkIn, err
+}
+
+// GetCheckInById returns the Check-in with that id in that Branch;
+// mongo.ErrNoDocuments when it is not in that Branch.
+func (entity *checkInEntity) GetCheckInById(scope Scope, id primitive.ObjectID) (entities.CheckIn, error) {
+	var checkIn entities.CheckIn
+	col, err := entity.collection(scope.ClientId)
+	if err != nil {
+		return checkIn, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = col.FindOne(ctx, scope.filter(bson.M{"_id": id})).Decode(&checkIn)
 	return checkIn, err
 }
 
@@ -84,15 +99,15 @@ func (entity *checkInEntity) GetCheckInBySessionTokenHash(clientId string, token
 	return checkIn, err
 }
 
-func (entity *checkInEntity) GetActiveCheckIns(clientId string, branchId string, now time.Time) ([]entities.CheckIn, error) {
-	col, err := entity.collection(clientId)
+func (entity *checkInEntity) GetActiveCheckIns(scope Scope, now time.Time) ([]entities.CheckIn, error) {
+	col, err := entity.collection(scope.ClientId)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	opts := options.Find().SetSort(bson.D{{Key: "checkedInAt", Value: -1}})
-	cursor, err := col.Find(ctx, activeFilter(clientId, branchId, now), opts)
+	cursor, err := col.Find(ctx, activeFilter(scope, now), opts)
 	if err != nil {
 		return nil, err
 	}
@@ -103,14 +118,14 @@ func (entity *checkInEntity) GetActiveCheckIns(clientId string, branchId string,
 	return checkIns, nil
 }
 
-func (entity *checkInEntity) MarkOtpVerified(clientId string, id primitive.ObjectID, verifiedAt time.Time, sessionTokenHash string, expiresAt time.Time) error {
-	col, err := entity.collection(clientId)
+func (entity *checkInEntity) MarkOtpVerified(scope Scope, id primitive.ObjectID, verifiedAt time.Time, sessionTokenHash string, expiresAt time.Time) error {
+	col, err := entity.collection(scope.ClientId)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err = col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
+	_, err = col.UpdateOne(ctx, scope.filter(bson.M{"_id": id}), bson.M{"$set": bson.M{
 		"otpVerifiedAt":    verifiedAt,
 		"sessionTokenHash": sessionTokenHash,
 		"expiresAt":        expiresAt,
@@ -121,14 +136,14 @@ func (entity *checkInEntity) MarkOtpVerified(clientId string, id primitive.Objec
 // Checkout marks the active Check-in with that id in that Branch as checked
 // out. It returns mongo.ErrNoDocuments when no such active Check-in exists:
 // the id belongs to another Branch, or it is already checked out.
-func (entity *checkInEntity) Checkout(clientId string, branchId string, id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error {
-	col, err := entity.collection(clientId)
+func (entity *checkInEntity) Checkout(scope Scope, id primitive.ObjectID, checkedOutAt time.Time, checkedOutBy string) error {
+	col, err := entity.collection(scope.ClientId)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	result, err := col.UpdateOne(ctx, bson.M{"_id": id, "branchId": branchId, "checkedOutAt": nil}, bson.M{"$set": bson.M{
+	result, err := col.UpdateOne(ctx, scope.filter(bson.M{"_id": id, "checkedOutAt": nil}), bson.M{"$set": bson.M{
 		"checkedOutAt": checkedOutAt,
 		"checkedOutBy": checkedOutBy,
 	}})
@@ -141,38 +156,38 @@ func (entity *checkInEntity) Checkout(clientId string, branchId string, id primi
 	return nil
 }
 
-func (entity *checkInEntity) SetPushSubscription(clientId string, id primitive.ObjectID, subscription *entities.PushSubscription) error {
-	col, err := entity.collection(clientId)
+func (entity *checkInEntity) SetPushSubscription(scope Scope, id primitive.ObjectID, subscription *entities.PushSubscription) error {
+	col, err := entity.collection(scope.ClientId)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err = col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"pushSubscription": subscription}})
+	_, err = col.UpdateOne(ctx, scope.filter(bson.M{"_id": id}), bson.M{"$set": bson.M{"pushSubscription": subscription}})
 	return err
 }
 
-func (entity *checkInEntity) ClearPushSubscription(clientId string, id primitive.ObjectID) error {
-	return entity.SetPushSubscription(clientId, id, nil)
+func (entity *checkInEntity) ClearPushSubscription(scope Scope, id primitive.ObjectID) error {
+	return entity.SetPushSubscription(scope, id, nil)
 }
 
-func (entity *checkInEntity) DeleteCheckIn(clientId string, id primitive.ObjectID) error {
-	col, err := entity.collection(clientId)
+func (entity *checkInEntity) DeleteCheckIn(scope Scope, id primitive.ObjectID) error {
+	col, err := entity.collection(scope.ClientId)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err = col.DeleteOne(ctx, bson.M{"_id": id})
+	_, err = col.DeleteOne(ctx, scope.filter(bson.M{"_id": id}))
 	return err
 }
 
-func (entity *checkInEntity) CountActive(clientId string, branchId string, now time.Time) (int64, error) {
-	col, err := entity.collection(clientId)
+func (entity *checkInEntity) CountActive(scope Scope, now time.Time) (int64, error) {
+	col, err := entity.collection(scope.ClientId)
 	if err != nil {
 		return 0, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return col.CountDocuments(ctx, activeFilter(clientId, branchId, now))
+	return col.CountDocuments(ctx, activeFilter(scope, now))
 }

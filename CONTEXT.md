@@ -66,6 +66,10 @@ _Avoid_: Notification text, copy, string
 One physical location of a Client with its own settings: shop name, Retention, Cooldown, Trigger confirmation method, whether Confirmation may be skipped, and the alert PIN. Check-ins and Emergency Events belong to a Branch.
 _Avoid_: Store, location, site, tenant
 
+**Staff**:
+The person behind one staff request, resolved once when the request enters a Branch-scoped route: the UM User and Role, the Branch their Alert Permission names, and the Event Types that Permission lets them trigger. Test alerts and Cooldown overrides need a Role of MANAGER or above whatever the Permission lists. Customers are never Staff.
+_Avoid_: Employee, operator, user (the UM word), caller
+
 **Alert Permission**:
 What one staff member may trigger at a Branch: the Event Types they are allowed to send and whether they receive test alerts. Granted per Client on top of the UM Role. A staff member without one may call no Branch-scoped route (admin, emergency, dashboard): there is no default Branch. The first Permission of a Client is granted by an admin through `PUT /admin/permissions`, which is Client-scoped.
 _Avoid_: Staff permission, role (the UM word), ACL

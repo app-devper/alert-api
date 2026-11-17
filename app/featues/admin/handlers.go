@@ -13,7 +13,9 @@ import (
 	"alert/app/data/entities"
 	"alert/app/domain"
 	"alert/app/domain/request"
+	"alert/app/domain/staff"
 
+	"github.com/app-devper/um-api/sessionclient"
 	"github.com/gin-gonic/gin"
 	qrcode "github.com/skip2/go-qrcode"
 	"go.mongodb.org/mongo-driver/bson"
@@ -136,9 +138,10 @@ func handleUpdateSetting(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusBadRequest, errcode.AD_BAD_REQUEST_002, "invalid confirm method")
 		return
 	}
+	s := staff.Current(ctx)
 	setting := entities.BranchSetting{
-		ClientId:           ctx.GetString("ClientId"),
-		BranchId:           ctx.GetString("BranchId"),
+		ClientId:           s.Scope.ClientId,
+		BranchId:           s.Scope.BranchId,
 		ShopName:           req.ShopName,
 		RetentionHours:     req.RetentionHours,
 		CooldownSeconds:    req.CooldownSeconds,
@@ -146,7 +149,7 @@ func handleUpdateSetting(ctx *gin.Context, repository *domain.Repository) {
 		SkipOtp:            req.SkipOtp,
 		SmsCreditThreshold: req.SmsCreditThreshold,
 		ContactChannel:     req.ContactChannel,
-		UpdatedBy:          ctx.GetString("UserId"),
+		UpdatedBy:          s.UserId,
 	}
 	if err := repository.BranchSetting.UpsertSetting(setting); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
@@ -171,9 +174,8 @@ func handleSetPin(ctx *gin.Context, repository *domain.Repository) {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
 		return
 	}
-	clientId := ctx.GetString("ClientId")
-	branchId := ctx.GetString("BranchId")
-	if err := repository.BranchSetting.SetPinHash(clientId, branchId, string(pinHash), req.ConfirmMethod, ctx.GetString("UserId")); err != nil {
+	s := staff.Current(ctx)
+	if err := repository.BranchSetting.SetPinHash(s.Scope.ClientId, s.Scope.BranchId, string(pinHash), req.ConfirmMethod, s.UserId); err != nil {
 		errcode.Abort(ctx, http.StatusInternalServerError, errcode.AD_INTERNAL_001, err.Error())
 		return
 	}
@@ -296,7 +298,8 @@ func handleSmsCredit(ctx *gin.Context, repository *domain.Repository) {
 		response.Ok(ctx, gin.H{"available": false, "credit": 0, "reason": err.Error()})
 		return
 	}
-	setting, _ := repository.BranchSetting.GetSetting(ctx.GetString("ClientId"), ctx.GetString("BranchId"))
+	s := staff.Current(ctx)
+	setting, _ := repository.BranchSetting.GetSetting(s.Scope.ClientId, s.Scope.BranchId)
 	response.Ok(ctx, gin.H{
 		"available": true,
 		"credit":    credit,
@@ -313,13 +316,14 @@ func checkInUrl(token string) string {
 	return base + "?token=" + token
 }
 
+// auditAdmin records an admin action. Behind RequireBranch the entry carries the
+// Staff's Branch; on Client-scoped routes (permissions) there is no Staff, so the
+// entry is Client-wide with the session's Client and User.
 func auditAdmin(ctx *gin.Context, repository *domain.Repository, action string, detail bson.M) {
-	repository.AuditLog.Record(entities.AuditLog{
-		ClientId: ctx.GetString("ClientId"),
-		BranchId: ctx.GetString("BranchId"),
-		Actor:    ctx.GetString("UserId"),
-		Action:   action,
-		Detail:   detail,
-		Result:   constant.ResultSuccess,
-	})
+	actor := staff.Current(ctx)
+	if actor.Scope.ClientId == "" {
+		actor = staff.FromPermission(ctx.GetString("UserId"), sessionclient.Role(ctx.GetString("Role")),
+			entities.StaffPermission{ClientId: ctx.GetString("ClientId")})
+	}
+	repository.AuditLog.Record(actor.AuditEntry(action, constant.ResultSuccess, detail))
 }
